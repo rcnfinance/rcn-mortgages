@@ -85,6 +85,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
 
     enum Status { Pending, Ongoing, Canceled, Paid, Defaulted }
     enum Type { Buy, Loan }
+
     struct Mortgage {
         address owner;
         Engine engine;
@@ -126,17 +127,24 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
         return 0;
     }
 
+    /**
+        @notices Requests a mortage on a already owned parcel
+    */
     function requestMortgage(Engine engine, uint256 loanId, uint256 landId) public returns (uint256 id) {
+        // Validate the associated loan
         require(engine.getCurrency(loanId) == MANA_CURRENCY);
         require(engine.getBorrower(loanId) == msg.sender);
         require(engine.getStatus(loanId) == Engine.Status.initial);
         require(engine.isApproved(loanId));
 
+        // Flag and check the receive of that parcel
         flagReceiveLand = landId;
         land.transferFrom(msg.sender, this, landId);
         require(flagReceiveLand == 0);
+        // Lock the parcel
         lockERC721(land, landId);
 
+        // Create the liability
         id = mortgages.push(Mortgage({
             owner: msg.sender,
             engine: engine,
@@ -160,23 +168,31 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
         });
     }
 
+    /**
+        @notices Request a mortage to buy a new loan
+    */
     function requestMortgage(Engine engine, uint256 loanId, uint256 deposit, uint256 landId) public returns (uint256 id) {
+        // Validate the associated loan
         require(engine.getCurrency(loanId) == MANA_CURRENCY);
         require(engine.getBorrower(loanId) == msg.sender);
         require(engine.getStatus(loanId) == Engine.Status.initial);
         require(engine.isApproved(loanId));
         require(rcn.allowance(msg.sender, this) >= REQUIRED_ALLOWANCE);
 
+        // Get the current parcel cost
         uint256 landCost;
         (, , landCost, ) = landMarket.auctionByAssetId(landId);
         uint256 loanAmount = engine.getAmount(loanId);
 
         // We expect a 10% extra for convertion losses
+        // the remaining will be sent to the borrower
         require((loanAmount + deposit) >= ((landCost / 10) * 11));
 
+        // Pull the deposit and lock the tokens
         require(mana.transferFrom(msg.sender, this, deposit));
         lockERC20(mana, deposit);
 
+        // Create the liability
         id = mortgages.push(Mortgage({
             owner: msg.sender,
             engine: engine,
@@ -200,52 +216,75 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
         });
     }
 
+    /**
+        @notices Cancels an existing mortgage
+    */
     function cancelMortgage(uint256 id) public returns (bool) {
         Mortgage storage mortgage = mortgages[id];
+        
+        // Only the owner of the mortgage and if the mortgage is pending
         require(mortgage.owner == msg.sender);
         require(mortgage.status == Status.Pending);
+        
         mortgage.status = Status.Canceled;
+
         if (mortgage.morateType == Type.Buy) {
+            // Transfer the deposit back to the borrower
             mana.transferFrom(this, msg.sender, mortgage.deposit);
             unlockERC20(mana, mortgage.deposit);
         } else {
+            // Transfer the parcel
             land.transferFrom(this, msg.sender, mortgage.landId);
             unlockERC721(land, mortgage.landId);
         }
+
         CanceledMortgage(id);
         return true;
     }
 
+    /**
+        @notices Request the cosign of a loan
+        @dev Required for RCN Cosigner compliance
+    */
     function requestCosign(Engine engine, uint256 index, bytes data, bytes oracleData) public returns (bool) {
+        // The first word of the data MUST contain the index of the target mortgage
         Mortgage storage mortgage = mortgages[uint256(readBytes32(data, 0))];
+
+        // Validate that the loan matches with the mortgage
+        // and the mortgage is still pending
         require(mortgage.engine == engine);
         require(mortgage.loanId == index);
         require(mortgage.status == Status.Pending);
 
         mortgage.status = Status.Ongoing;
 
-        // Mint ERC721 Token
+        // Mint mortgage ERC721 Token
         totalMortgages++;
         balances[mortgage.owner]++;
         Transfer(0x0, mortgage.owner, uint256(readBytes32(data, 0)));
 
-        // transfer RCN to this contract
+        // Transfer the amount of the loan in RCN to this contract
         uint256 loanAmount = convertRate(engine.getOracle(index), engine.getCurrency(index), oracleData, engine.getAmount(index));
         require(rcn.transferFrom(mortgage.owner, this, loanAmount));
         
-        // Convert RCN -> MANA
+        // Convert the RCN into MANA using KyberNetwork
+        // and save the received MANA
         require(rcn.approve(kyberNetwork, loanAmount));
         uint256 boughtMana = kyberNetwork.trade(rcn, loanAmount, mana, this, 10 ** 30, 0, this);
         require(rcn.approve(kyberNetwork, 0));
 
+        // If the mortgage is of type Loan, this will remain 0
         uint256 currentLandCost;
 
         // Buy land and retrieve the cost if required by the type of mortgage
         if (mortgage.morateType == Type.Buy) {
+            // Load the new cost of the parcel, it may be changed
             (, , currentLandCost, ) = landMarket.auctionByAssetId(mortgage.landId);
+
+            // If the parcel is more expensive than before, cancel the transaction
             require(currentLandCost <= mortgage.landCost);
 
-            // Buy land
+            // Buy the land and lock it into the mortgage contract
             flagReceiveLand = mortgage.landId;
             require(mana.approve(landMarket, currentLandCost));
             landMarket.executeOrder(mortgage.landId, currentLandCost);
@@ -254,7 +293,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
             lockERC721(land, mortgage.landId);
         }
 
-        // Calculate the amount to send to the borrower and 
+        // Calculate the remaining amount to send to the borrower and 
         // check that we didn't expend any contract funds.
         uint256 totalMana = safeAdd(boughtMana, mortgage.deposit);
         uint256 rest = safeSubtract(totalMana, currentLandCost);
@@ -277,21 +316,31 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
         return true;
     }
 
+    /**
+        @notices Claims the mortgage by the lender/borrower
+    */
     function claim(address, uint256 id, bytes) public returns (bool) {
         Mortgage storage mortgage = mortgages[id];
+        
+        // Validate that the mortgage wasn't claimed
         require(mortgage.status == Status.Ongoing);
+
         uint256 loanId = mortgage.loanId;
+        
         // Delete mortgage id registry
         delete mortgageByLandId[mortgage.landId];
+        
         // ERC721 Delete asset
         totalMortgages--;
         balances[mortgage.owner]--;
         Transfer(mortgage.owner, 0x0, id);
+        
         if (mortgage.owner == msg.sender) {
             // Check that the loan is paid
             require(mortgage.engine.getStatus(loanId) == Engine.Status.paid ||
                 mortgage.engine.getStatus(loanId) == Engine.Status.destroyed);
             mortgage.status = Status.Paid;
+            // Transfer the parcel to the borrower
             land.transferFrom(this, mortgage.owner, mortgage.landId);
             unlockERC721(land, mortgage.landId);
             PaidMortgage(id);
@@ -300,6 +349,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
             // Check if the loan is defaulted
             require(isDefaulted(mortgage.engine, loanId));
             mortgage.status = Status.Defaulted;
+            // Transfer the parcel to the lender
             land.transferFrom(this, msg.sender, mortgage.landId);
             unlockERC721(land, mortgage.landId);
             DefaultedMortgage(id);
@@ -308,7 +358,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
     }
 
     /**
-        @dev Defines a custom logic that determines if a loan is defaulted or not.
+        @notices Defines a custom logic that determines if a loan is defaulted or not.
 
         @param index Index of the loan
 
