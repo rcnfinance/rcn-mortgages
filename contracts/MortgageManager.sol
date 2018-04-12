@@ -128,7 +128,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
     }
 
     /**
-        @notices Requests a mortage on a already owned parcel
+        @notice Requests a mortage on a already owned parcel
     */
     function requestMortgage(Engine engine, uint256 loanId, uint256 landId) public returns (uint256 id) {
         // Validate the associated loan
@@ -169,7 +169,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
     }
 
     /**
-        @notices Request a mortage to buy a new loan
+        @notice Request a mortage to buy a new loan
     */
     function requestMortgage(Engine engine, uint256 loanId, uint256 deposit, uint256 landId) public returns (uint256 id) {
         // Validate the associated loan
@@ -217,7 +217,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
     }
 
     /**
-        @notices Cancels an existing mortgage
+        @notice Cancels an existing mortgage
     */
     function cancelMortgage(uint256 id) public returns (bool) {
         Mortgage storage mortgage = mortgages[id];
@@ -243,7 +243,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
     }
 
     /**
-        @notices Request the cosign of a loan
+        @notice Request the cosign of a loan
         @dev Required for RCN Cosigner compliance
     */
     function requestCosign(Engine engine, uint256 index, bytes data, bytes oracleData) public returns (bool) {
@@ -317,7 +317,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
     }
 
     /**
-        @notices Claims the mortgage by the lender/borrower
+        @notice Claims the mortgage by the lender/borrower
     */
     function claim(address, uint256 id, bytes) public returns (bool) {
         Mortgage storage mortgage = mortgages[id];
@@ -358,7 +358,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
     }
 
     /**
-        @notices Defines a custom logic that determines if a loan is defaulted or not.
+        @notice Defines a custom logic that determines if a loan is defaulted or not.
 
         @param index Index of the loan
 

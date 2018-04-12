@@ -20,11 +20,16 @@ contract KyberNetwork {
 }
 
 contract KyberMock is KyberNetwork, Ownable {
-    Token public constant MANA = Token(0x2a8fd99c19271f4f04b1b7b9c4f7cf264b626edb);
-    Token public constant RCN = Token(0x2f45b6fb2f28a73f110400386da31044b2e953d4);
+    Token public MANA;
+    Token public RCN;
 
     uint256 public rateMR;
     uint256 public rateRM;
+
+    function KyberMock(Token _MANA, Token _RCN) public {
+        MANA = _MANA;
+        RCN = _RCN;
+    }
 
     function withdraw(Token token, address to, uint256 amount) public onlyOwner returns (bool) {
         return token.transfer(to, amount);
