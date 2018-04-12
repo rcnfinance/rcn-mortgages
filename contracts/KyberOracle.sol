@@ -18,6 +18,8 @@ contract KyberOracle is Oracle {
     mapping(bytes32 => address) public tickerToToken;
     mapping(bytes32 => uint256) public tickerToDecimals;
 
+    event ChangedDecimals(bytes32 currency, uint256 decimals);
+
     function setRcn(address _rcn) public onlyOwner returns (bool) {
         rcn = _rcn;
         return true;
@@ -34,7 +36,7 @@ contract KyberOracle is Oracle {
     }
 
     function changeToken(string ticker, address token) public returns (bool) {
-        return changeToken(keccak256(ticker), token);
+        return changeToken(encodeCurrency(ticker), token);
     }
 
     function changeToken(bytes32 _hash, address token) public onlyOwner returns (bool) {
@@ -43,11 +45,12 @@ contract KyberOracle is Oracle {
     }
 
     function changeDecimals(string ticker, uint256 decimals) public returns (bool) {
-        return changeDecimals(keccak256(ticker), decimals);
+        return changeDecimals(encodeCurrency(ticker), decimals);
     }
 
     function changeDecimals(bytes32 _hash, uint256 decimals) public onlyOwner returns (bool) {
         tickerToDecimals[_hash] = decimals;
+        ChangedDecimals(_hash, decimals);
         return true;
     }
 
@@ -67,7 +70,6 @@ contract KyberOracle is Oracle {
         if (delegate != address(0)) {
             return delegate.getRate(currency, data);
         }
-
         (rate, ) = kyber.getExpectedRate(tickerToToken[currency], rcn, 1 ether);
         decimals = tickerToDecimals[currency];
     }

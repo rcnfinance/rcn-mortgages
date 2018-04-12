@@ -106,6 +106,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
     mapping(address => uint256) private balances;
     mapping(address => mapping(address => bool)) private operators;
     mapping(uint256 => uint256) public mortgageByLandId;
+    mapping(address => mapping(uint256 => uint256)) public loanToLiability;
 
     function totalSupply() public view returns (uint256) {
         return totalMortgages;
@@ -130,7 +131,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
     /**
         @notice Requests a mortage on a already owned parcel
     */
-    function requestMortgage(Engine engine, uint256 loanId, uint256 landId) public returns (uint256 id) {
+    function requestMortgageLend(Engine engine, uint256 loanId, uint256 landId) public returns (uint256 id) {
         // Validate the associated loan
         require(engine.getCurrency(loanId) == MANA_CURRENCY);
         require(engine.getBorrower(loanId) == msg.sender);
@@ -171,7 +172,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
     /**
         @notice Request a mortage to buy a new loan
     */
-    function requestMortgage(Engine engine, uint256 loanId, uint256 deposit, uint256 landId) public returns (uint256 id) {
+    function requestMortgageBuy(Engine engine, uint256 loanId, uint256 deposit, uint256 landId) public returns (uint256 id) {
         // Validate the associated loan
         require(engine.getCurrency(loanId) == MANA_CURRENCY);
         require(engine.getBorrower(loanId) == msg.sender);
@@ -310,6 +311,9 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
         // Save mortgage id registry
         mortgageByLandId[mortgage.landId] = uint256(readBytes32(data, 0));
 
+        // Save loan id to liability registry
+        loanToLiability[mortgage.engine][mortgage.loanId] = uint256(readBytes32(data, 0));
+
         // Emit mortgage event
         StartedMortgage(uint256(readBytes32(data, 0)));
 
@@ -319,8 +323,8 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
     /**
         @notice Claims the mortgage by the lender/borrower
     */
-    function claim(address, uint256 id, bytes) public returns (bool) {
-        Mortgage storage mortgage = mortgages[id];
+    function claim(address engine, uint256 id, bytes) public returns (bool) {
+        Mortgage storage mortgage = mortgages[loanToLiability[engine][id]];
         
         // Validate that the mortgage wasn't claimed
         require(mortgage.status == Status.Ongoing);
@@ -329,6 +333,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
         
         // Delete mortgage id registry
         delete mortgageByLandId[mortgage.landId];
+        delete loanToLiability[engine][id];
         
         // ERC721 Delete asset
         totalMortgages--;
@@ -423,6 +428,15 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
         if (msg.sender == address(land) && flagReceiveLand == _tokenId) {
             flagReceiveLand = 0;
             return bytes4(keccak256("onERC721Received(address,uint256,bytes)"));
+        }
+    }
+
+    function getData(uint256 id) public view returns (bytes o) {
+        assembly {
+            o := mload(0x40)
+            mstore(0x40, add(o, and(add(add(32, 0x20), 0x1f), not(0x1f))))
+            mstore(o, 32)
+            mstore(add(o, 32), id)
         }
     }
     
