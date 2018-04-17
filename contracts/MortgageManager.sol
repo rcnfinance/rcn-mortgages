@@ -53,7 +53,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
     uint256 public constant REQUIRED_ALLOWANCE = 1000000000 * 10**18;
 
     function name() public view returns (string _name) {
-        _name = "Descentraland RCN Mortgage - Acacia";
+        _name = "Decentraland RCN Mortgage";
     }
 
     function symbol() public view returns (string _symbol) {
