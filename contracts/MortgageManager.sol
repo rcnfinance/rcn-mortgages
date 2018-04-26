@@ -43,6 +43,7 @@ contract KyberNetwork {
 contract Land is ERC721 {
     function updateLandData(int x, int y, string data) public;
     function decodeTokenId(uint value) view public returns (int, int);
+    function safeTransferFrom(address from, address to, uint256 assetId) public;
 }
 
 contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
@@ -140,7 +141,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
 
         // Flag and check the receive of that parcel
         flagReceiveLand = landId;
-        land.transferFrom(msg.sender, this, landId);
+        land.safeTransferFrom(msg.sender, this, landId);
         require(flagReceiveLand == 0);
         // Lock the parcel
         lockERC721(land, landId);
@@ -168,6 +169,8 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
             _deposit: 0
         });
     }
+
+    event Debug(bytes32 c);
 
     /**
         @notice Request a mortage to buy a new loan
@@ -299,7 +302,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
         uint256 totalMana = safeAdd(boughtMana, mortgage.deposit);
         uint256 rest = safeSubtract(totalMana, currentLandCost);
 
-        // Return rest MANA
+        // Return rest MANAowner
         require(mana.transfer(mortgage.owner, rest));
 
         // Unlock MANA from deposit
@@ -320,6 +323,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
         return true;
     }
 
+    event Debug(address ownerOfLand, bytes32 landData, address receiver);
     /**
         @notice Claims the mortgage by the lender/borrower
     */
@@ -346,7 +350,8 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
                 mortgage.engine.getStatus(loanId) == Engine.Status.destroyed);
             mortgage.status = Status.Paid;
             // Transfer the parcel to the borrower
-            land.transferFrom(this, mortgage.owner, mortgage.landId);
+            Debug(land.ownerOf(mortgage.landId), bytes32(mortgage.landId), mortgage.owner);
+            land.safeTransferFrom(this, mortgage.owner, mortgage.landId);
             unlockERC721(land, mortgage.landId);
             PaidMortgage(id);
             return true;
@@ -355,7 +360,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
             require(isDefaulted(mortgage.engine, loanId));
             mortgage.status = Status.Defaulted;
             // Transfer the parcel to the lender
-            land.transferFrom(this, msg.sender, mortgage.landId);
+            land.safeTransferFrom(this, msg.sender, mortgage.landId);
             unlockERC721(land, mortgage.landId);
             DefaultedMortgage(id);
             return true;
