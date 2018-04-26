@@ -67,6 +67,72 @@ contract('NanoLoanEngine', function(accounts) {
         mortgageManager = await MortgageManager.new(rcn.address, mana.address, land.address, landMarket.address, kyber.address);
     })
 
+    function toInterestRate(r) {
+        return Math.trunc(10000000/r);
+    }
+
+    async function createMortgage() {
+        // To use the mortgage manager the borrower
+        // should approve the MortgageManager contract to transfer his 
+        // MANA and RCN tokens
+        await rcn.approve(mortgageManager.address, 10**32, {from:accounts[0]})
+        await mana.approve(mortgageManager.address, 10**32, {from:accounts[0]})
+
+        // The borrower should have enought MANA to pay the initial deposit
+        await mana.createTokens(accounts[0], 30 * 10 ** 18)
+        
+        // Create a land and create an order in the Decentraland Marketplace
+        await land.assignNewParcel(50, 60, accounts[1])
+        await land.setApprovalForAll(landMarket.address, true, {from:accounts[1]})
+        let landId = await land.encodeTokenId(50, 60)
+        await landMarket.createOrder(landId, 200 * 10**18, 10**30, {from:accounts[1]})
+
+        // Create the loan on the RCN engine and save the id
+        // the loan should be in MANA currency
+        let loanReceipt = await rcnEngine.createLoan(
+            kyberOracle.address, // Contract of the oracle
+            accounts[0], // Borrower of the loan (caller of this method)
+            manaCurrency, // Currency of the loan, MANA
+            190*10**18, // Requested 200 MANA to buy the land
+            toInterestRate(20), // Punitory interest rate, 20% anual
+            toInterestRate(30), // Punnitory interest rate, 30% anual
+            6 * 30 * 24 * 60 * 60, // Duration of the loan, 6 months
+            5 * 30 * 24 * 60 * 60, // Borrower can pay the loan at 5 months
+            Math.floor(Date.now() / 1000) + 1 * 30 * 24 * 60 * 60, // Mortgage request expires in 1 month
+            "Decentraland mortgage"
+        )
+
+        let loanId = loanReceipt["logs"][0]["args"]["_index"];
+
+        // Request a Mortgage
+        let mortgageReceipt = await mortgageManager.requestMortgageBuy(
+            rcnEngine.address, // Address of the RCN Engine
+            loanId, // Loan id already created in RCN, it should be denominated in MANA
+            30 * 10 ** 18, // Send the deposit (?) from the borrower, it should be remaining needed to buy the land + 10%
+            landId // Land id to buy, it has to be on sell on the Decentraland market
+        )
+
+        // Get the mortgage ID
+        let mortgageId = mortgageReceipt["logs"][0]["args"]["_id"]
+    }
+
+    it("Should request a mortgage", createMortgage)
+
+    it("It should cancel a mortgage", async() => {
+        // Do all the process to create a mortgage
+        // loan ID is 0 and mortgage ID is 0
+        await createMortgage()
+
+        // Cancel the RCN Loan
+        await rcnEngine.destroy(0)
+
+        // Cancel the mortgage request to retrieve the deposit
+        await mortgageManager.cancelMortgage(0)
+
+        // Borrower should have his MANA back
+        assert.equal(await mana.balanceOf(accounts[0]), 0*10**18)
+    })
+
     it("Test mortgage creation and payment", async() => {
         // Buy land and put it to sell
         await land.assignNewParcel(50, 60, accounts[1])
