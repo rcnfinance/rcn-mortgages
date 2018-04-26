@@ -95,7 +95,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
         uint256 landId;
         uint256 landCost;
         Status status;
-        Type morateType;
+        Type mortgageType;
         // ERC-721
         address approvedTransfer;
     }
@@ -130,7 +130,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
     }
 
     /**
-        @notice Requests a mortage on a already owned parcel
+        @notice Requests a mortgage on a already owned parcel
     */
     function requestMortgageLend(Engine engine, uint256 loanId, uint256 landId) public returns (uint256 id) {
         // Validate the associated loan
@@ -156,7 +156,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
             landCost: 0,
             status: Status.Pending,
             approvedTransfer: 0x0,
-            morateType: Type.Loan
+            mortgageType: Type.Loan
         })) - 1;
 
         RequestedMortgage({
@@ -173,7 +173,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
     event Debug(bytes32 c);
 
     /**
-        @notice Request a mortage to buy a new loan
+        @notice Request a mortgage to buy a new loan
     */
     function requestMortgageBuy(Engine engine, uint256 loanId, uint256 deposit, uint256 landId) public returns (uint256 id) {
         // Validate the associated loan
@@ -206,7 +206,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
             landCost: landCost,
             status: Status.Pending,
             approvedTransfer: 0x0,
-            morateType: Type.Buy
+            mortgageType: Type.Buy
         })) - 1;
 
         RequestedMortgage({
@@ -232,7 +232,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
         
         mortgage.status = Status.Canceled;
 
-        if (mortgage.morateType == Type.Buy) {
+        if (mortgage.mortgageType == Type.Buy) {
             // Transfer the deposit back to the borrower
             mana.transferFrom(this, msg.sender, mortgage.deposit);
             unlockERC20(mana, mortgage.deposit);
@@ -281,7 +281,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
         uint256 currentLandCost;
 
         // Buy land and retrieve the cost if required by the type of mortgage
-        if (mortgage.morateType == Type.Buy) {
+        if (mortgage.mortgageType == Type.Buy) {
             // Load the new cost of the parcel, it may be changed
             (, , currentLandCost, ) = landMarket.auctionByAssetId(mortgage.landId);
 
