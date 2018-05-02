@@ -129,6 +129,10 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
         return 0;
     }
 
+    function requestMortgagePawnSig(Engine engine, bytes32 loanSignature, uint256 landId) public returns (uint256 id) {
+        return requestMortgagePawn(engine, engine.signatureToLoan(loanSignature), landId);
+    }
+
     /**
         @notice Requests a mortgage on a already owned parcel
     */
@@ -170,7 +174,9 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
         });
     }
 
-    event Debug(bytes32 c);
+    function requestMortgageBuySig(Engine engine, bytes32 loanSignature, uint256 deposit, uint256 landId) public returns (uint256 id) {
+        return requestMortgageBuy(engine, engine.signatureToLoan(loanSignature), deposit, landId);
+    }
 
     /**
         @notice Request a mortgage to buy a new loan
