@@ -132,7 +132,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
     /**
         @notice Requests a mortgage on a already owned parcel
     */
-    function requestMortgageLend(Engine engine, uint256 loanId, uint256 landId) public returns (uint256 id) {
+    function requestMortgagePawn(Engine engine, uint256 loanId, uint256 landId) public returns (uint256 id) {
         // Validate the associated loan
         require(engine.getCurrency(loanId) == MANA_CURRENCY);
         require(engine.getBorrower(loanId) == msg.sender);
@@ -329,7 +329,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
     */
     function claim(address engine, uint256 id, bytes) public returns (bool) {
         Mortgage storage mortgage = mortgages[loanToLiability[engine][id]];
-        
+
         // Validate that the mortgage wasn't claimed
         require(mortgage.status == Status.Ongoing);
 
@@ -391,7 +391,6 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
     function transfer(address to, uint256 id) public returns (bool) {
         require(to != address(0));
         Mortgage storage mortgage = mortgages[id];
-        require(mortgage.status == Status.Ongoing);
         require(msg.sender == mortgage.owner || msg.sender == mortgage.approvedTransfer || operators[mortgage.owner][msg.sender]);
         Transfer(msg.sender, to, id);
         mortgage.owner = to;
@@ -468,5 +467,4 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
             return (safeMult(safeMult(amount, rate), (10**(RCN_DECIMALS-decimals)))) / PRECISION;
         }
     }
-
 }
