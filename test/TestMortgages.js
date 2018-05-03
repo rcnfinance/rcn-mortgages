@@ -107,13 +107,13 @@ contract('NanoLoanEngine', function(accounts) {
         )
 
         // Retrieve the loan signature
-        let loanSignature = await rcnEngine.getLoanSignature(kyberOracle.address, accounts[0], accounts[0], manaCurrency, web3.toWei(190),
+        let loanIdentifier = await rcnEngine.buildIdentifier(kyberOracle.address, accounts[0], accounts[0], manaCurrency, web3.toWei(190),
             toInterestRate(20), toInterestRate(30), durationLoan, closeTime, expirationRequest, "Decentraland mortgage")
 
         // Request a Mortgage
         let mortgageReceipt = await mortgageManager.requestMortgage(
             rcnEngine.address, // Address of the RCN Engine
-            loanSignature, // Loan id already created in RCN, it should be denominated in MANA
+            loanIdentifier, // Loan id already created in RCN, it should be denominated in MANA
             30 * 10 ** 18, // Send the deposit (?) from the borrower, it should be remaining needed to buy the land + 10%
             landId // Land id to buy, it has to be on sell on the Decentraland market
         )

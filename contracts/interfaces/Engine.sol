@@ -32,5 +32,5 @@ contract Engine {
     function transfer(address to, uint256 index) public returns (bool);
     function takeOwnership(uint256 index) public returns (bool);
     function withdrawal(uint index, address to, uint256 amount) public returns (bool);
-    function signatureToLoan(bytes32 signature) public view returns (uint256);
+    function identifierToIndex(bytes32 signature) public view returns (uint256);
 }

@@ -127,8 +127,8 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
         return 0;
     }
 
-    function requestMortgage(Engine engine, bytes32 loanSignature, uint256 deposit, uint256 landId) public returns (uint256 id) {
-        return requestMortgageId(engine, engine.signatureToLoan(loanSignature), deposit, landId);
+    function requestMortgage(Engine engine, bytes32 loanIdentifier, uint256 deposit, uint256 landId) public returns (uint256 id) {
+        return requestMortgageId(engine, engine.identifierToIndex(loanIdentifier), deposit, landId);
     }
 
     /**
