@@ -257,18 +257,18 @@ contract NanoLoanEngine is ERC721, Engine, Ownable, TokenLockable {
     uint256 constant internal PRECISION = (10**18);
     uint256 constant internal RCN_DECIMALS = 18;
 
-    uint256 public constant VERSION = 211;
+    uint256 public constant VERSION = 220;
     string public constant VERSION_NAME = "Basalt";
 
     uint256 private activeLoans = 0;
     mapping(address => uint256) private lendersBalance;
 
     function name() public view returns (string _name) {
-        _name = "RCN - Nano loan engine - Basalt 211";
+        _name = "RCN - Nano loan engine - Basalt 220";
     }
 
     function symbol() public view returns (string _symbol) {
-        _symbol = "RCN-NLE-211";
+        _symbol = "RCN-NLE-220";
     }
 
     /**
@@ -310,7 +310,7 @@ contract NanoLoanEngine is ERC721, Engine, Ownable, TokenLockable {
             // Fail transaction
             revert();
         } else {
-            uint256 totalLoans = totalSupply();
+            uint256 totalLoans = loans.length - 1;
             uint256 resultIndex = 0;
 
             uint256 loanId;
@@ -345,7 +345,7 @@ contract NanoLoanEngine is ERC721, Engine, Ownable, TokenLockable {
             return new uint256[](0);
         } else {
             uint256[] memory result = new uint256[](tokenCount);
-            uint256 totalLoans = totalSupply();
+            uint256 totalLoans = loans.length - 1;
             uint256 resultIndex = 0;
 
             uint256 loanId;
@@ -406,6 +406,8 @@ contract NanoLoanEngine is ERC721, Engine, Ownable, TokenLockable {
     function NanoLoanEngine(Token _rcn) public {
         owner = msg.sender;
         rcn = _rcn;
+        // The loan with ID 0 is a Invalid loan
+        loans.length++;
     }
 
     struct Loan {
@@ -439,6 +441,8 @@ contract NanoLoanEngine is ERC721, Engine, Ownable, TokenLockable {
     }
 
     mapping(address => mapping(address => bool)) private operators;
+
+    mapping(bytes32 => uint256) public signatureToLoan;
     Loan[] private loans;
 
     /**
@@ -446,6 +450,7 @@ contract NanoLoanEngine is ERC721, Engine, Ownable, TokenLockable {
         it must call the "approve" function. If the creator of the loan is the borrower the approve is done automatically.
 
         @dev The creator of the loan is the caller of this function; this is useful to track which wallet created the loan.
+            Two identical loans cannot exist, a clone of another loan will fail.
 
         @param _oracleContract Address of the Oracle contract, if the loan does not use any oracle, this field should be 0x0.
         @param _borrower Address of the borrower
@@ -477,8 +482,15 @@ contract NanoLoanEngine is ERC721, Engine, Ownable, TokenLockable {
 
         var loan = Loan(Status.initial, _oracleContract, _borrower, 0x0, msg.sender, 0x0, _amount, 0, 0, 0, 0, _interestRate,
             _interestRatePunitory, 0, _duesIn, _currency, _cancelableAt, 0, 0x0, _expirationRequest, _metadata);
+
         uint index = loans.push(loan) - 1;
         CreatedLoan(index, _borrower, msg.sender);
+
+        bytes32 signature = getLoanSignature(_oracleContract, _borrower, msg.sender, _currency, _amount, _interestRate, _interestRatePunitory,
+            _duesIn, _cancelableAt, _expirationRequest, _metadata);
+
+        require(signatureToLoan[signature] == 0);
+        signatureToLoan[signature] = index;
 
         if (msg.sender == _borrower) {
             approveLoan(index);
@@ -511,6 +523,19 @@ contract NanoLoanEngine is ERC721, Engine, Ownable, TokenLockable {
     function getInterest(uint index) public view returns (uint256) { return loans[index].interest; }
 
     /**
+        @notice Used to reference a loan that is not yet created, and by that does not have an ID
+
+        @dev Two identical loans cannot exist, only one loan per signature is allowed
+
+        @return The signature hash of the loan configuration
+    */
+    function getLoanSignature(Oracle oracle, address borrower, address creator, bytes32 currency, uint256 amount, uint256 interestRate,
+        uint256 interestRatePunitory, uint256 duesIn, uint256 cancelableAt, uint256 expirationRequest, string metadata) pure returns (bytes32) {
+        return keccak256(oracle, borrower, creator, currency, amount, interestRate, interestRatePunitory, duesIn,
+                        cancelableAt, expirationRequest, metadata); 
+    }
+
+    /**
         @notice Used to know if a loan is ready to lend
 
         @param index Index of the loan
@@ -538,6 +563,19 @@ contract NanoLoanEngine is ERC721, Engine, Ownable, TokenLockable {
         loan.approbations[msg.sender] = true;
         ApprovedBy(index, msg.sender);
         return true;
+    }
+
+    /**
+        @notice Approves a loan using the signature and not the ID
+
+        @param signature Signature of the loan
+
+        @return true if the approve was done successfully
+    */
+    function approveLoanSig(bytes32 signature) public returns (bool) {
+        uint256 id = signatureToLoan[signature];
+        require(id != 0);
+        return approveLoan(id);
     }
 
     /**
@@ -643,6 +681,19 @@ contract NanoLoanEngine is ERC721, Engine, Ownable, TokenLockable {
     }
 
     /**
+        @notice Destroys a loan using the signature and not the ID
+
+        @param signature Signature of the loan
+
+        @return true if the destroy was done successfully
+    */
+    function destroySig(bytes32 signature) public returns (bool) {
+        uint256 id = signatureToLoan[signature];
+        require(id != 0);
+        return destroy(id);
+    }
+
+    /**
         @notice Transfers a loan to a different lender, the caller must be the current lender or previously being
         approved with the method "approveTransfer"; only loans with the Status.lent status can be transfered.
 
@@ -656,7 +707,6 @@ contract NanoLoanEngine is ERC721, Engine, Ownable, TokenLockable {
     function transfer(address to, uint256 index) public returns (bool) {
         Loan storage loan = loans[index];
         
-        require(loan.status != Status.destroyed && loan.status != Status.paid);
         require(msg.sender == loan.lender || msg.sender == loan.approvedTransfer || operators[loan.lender][msg.sender]);
         require(to != address(0));
         loan.lender = to;
