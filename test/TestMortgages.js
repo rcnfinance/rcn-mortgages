@@ -111,7 +111,7 @@ contract('NanoLoanEngine', function(accounts) {
             toInterestRate(20), toInterestRate(30), durationLoan, closeTime, expirationRequest, "Decentraland mortgage")
 
         // Request a Mortgage
-        let mortgageReceipt = await mortgageManager.requestMortgageBuy(
+        let mortgageReceipt = await mortgageManager.requestMortgage(
             rcnEngine.address, // Address of the RCN Engine
             loanSignature, // Loan id already created in RCN, it should be denominated in MANA
             30 * 10 ** 18, // Send the deposit (?) from the borrower, it should be remaining needed to buy the land + 10%
@@ -153,7 +153,7 @@ contract('NanoLoanEngine', function(accounts) {
         // Mint MANA and Request mortgage
         await mana.createTokens(accounts[2], 40*10**18);
         await mana.approve(mortgageManager.address, 40*10**18, {from:accounts[2]})
-        await mortgageManager.requestMortgageBuyId(rcnEngine.address, loanId, 40*10**18, landId, {from:accounts[2]});
+        await mortgageManager.requestMortgageId(rcnEngine.address, loanId, 40*10**18, landId, {from:accounts[2]});
         let cosignerData = await mortgageManager.getData(0);
 
         // Lend
@@ -175,7 +175,6 @@ contract('NanoLoanEngine', function(accounts) {
         assert.equal(mortgage[3].toNumber(), 40*10**18, "Deposit is 40 MANA")
         assert.equal(mortgage[5].toNumber(), 200*10**18, "Check land cost")
         assert.equal(mortgage[6].toNumber(), 1, "Status should be Ongoing")
-        assert.equal(mortgage[7].toNumber(), 0, "Type should be Buy")
 
         // Also test the ERC-721
         assert.equal(await mortgageManager.balanceOf(accounts[2]), 1)

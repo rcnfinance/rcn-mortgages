@@ -61,7 +61,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
         _symbol = "LAND-RCN-Mortgage";
     }
 
-    event RequestedMortgage(uint256 _id, Type _type, address _borrower, address _engine, uint256 _loanId, uint256 _landId, uint256 _deposit);
+    event RequestedMortgage(uint256 _id, address _borrower, address _engine, uint256 _loanId, uint256 _landId, uint256 _deposit);
     event StartedMortgage(uint256 _id);
     event CanceledMortgage(uint256 _id);
     event PaidMortgage(uint256 _id);
@@ -85,7 +85,6 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
     }
 
     enum Status { Pending, Ongoing, Canceled, Paid, Defaulted }
-    enum Type { Buy, Pawn }
 
     struct Mortgage {
         address owner;
@@ -95,7 +94,6 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
         uint256 landId;
         uint256 landCost;
         Status status;
-        Type mortgageType;
         // ERC-721
         address approvedTransfer;
     }
@@ -129,59 +127,14 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
         return 0;
     }
 
-    function requestMortgagePawn(Engine engine, bytes32 loanSignature, uint256 landId) public returns (uint256 id) {
-        return requestMortgagePawnId(engine, engine.signatureToLoan(loanSignature), landId);
-    }
-
-    /**
-        @notice Requests a mortgage on a already owned parcel
-    */
-    function requestMortgagePawnId(Engine engine, uint256 loanId, uint256 landId) public returns (uint256 id) {
-        // Validate the associated loan
-        require(engine.getCurrency(loanId) == MANA_CURRENCY);
-        require(engine.getBorrower(loanId) == msg.sender);
-        require(engine.getStatus(loanId) == Engine.Status.initial);
-        require(engine.isApproved(loanId));
-
-        // Flag and check the receive of that parcel
-        flagReceiveLand = landId;
-        land.safeTransferFrom(msg.sender, this, landId);
-        require(flagReceiveLand == 0);
-        // Lock the parcel
-        lockERC721(land, landId);
-
-        // Create the liability
-        id = mortgages.push(Mortgage({
-            owner: msg.sender,
-            engine: engine,
-            loanId: loanId,
-            deposit: 0,
-            landId: landId,
-            landCost: 0,
-            status: Status.Pending,
-            approvedTransfer: 0x0,
-            mortgageType: Type.Pawn
-        })) - 1;
-
-        RequestedMortgage({
-            _id: id,
-            _type: Type.Pawn,
-            _borrower: msg.sender,
-            _engine: engine,
-            _loanId: loanId,
-            _landId: landId,
-            _deposit: 0
-        });
-    }
-
-    function requestMortgageBuy(Engine engine, bytes32 loanSignature, uint256 deposit, uint256 landId) public returns (uint256 id) {
-        return requestMortgageBuyId(engine, engine.signatureToLoan(loanSignature), deposit, landId);
+    function requestMortgage(Engine engine, bytes32 loanSignature, uint256 deposit, uint256 landId) public returns (uint256 id) {
+        return requestMortgageId(engine, engine.signatureToLoan(loanSignature), deposit, landId);
     }
 
     /**
         @notice Request a mortgage to buy a new loan
     */
-    function requestMortgageBuyId(Engine engine, uint256 loanId, uint256 deposit, uint256 landId) public returns (uint256 id) {
+    function requestMortgageId(Engine engine, uint256 loanId, uint256 deposit, uint256 landId) public returns (uint256 id) {
         // Validate the associated loan
         require(engine.getCurrency(loanId) == MANA_CURRENCY);
         require(engine.getBorrower(loanId) == msg.sender);
@@ -211,13 +164,11 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
             landId: landId,
             landCost: landCost,
             status: Status.Pending,
-            approvedTransfer: 0x0,
-            mortgageType: Type.Buy
+            approvedTransfer: 0x0
         })) - 1;
 
         RequestedMortgage({
             _id: id,
-            _type: Type.Buy,
             _borrower: msg.sender,
             _engine: engine,
             _loanId: loanId,
@@ -238,15 +189,9 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
         
         mortgage.status = Status.Canceled;
 
-        if (mortgage.mortgageType == Type.Buy) {
-            // Transfer the deposit back to the borrower
-            require(mana.transfer(msg.sender, mortgage.deposit));
-            unlockERC20(mana, mortgage.deposit);
-        } else {
-            // Transfer the parcel
-            land.transferFrom(this, msg.sender, mortgage.landId);
-            unlockERC721(land, mortgage.landId);
-        }
+        // Transfer the deposit back to the borrower
+        require(mana.transfer(msg.sender, mortgage.deposit));
+        unlockERC20(mana, mortgage.deposit);
 
         CanceledMortgage(id);
         return true;
@@ -286,22 +231,17 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
         // If the mortgage is of type Loan, this will remain 0
         uint256 currentLandCost;
 
-        // Buy land and retrieve the cost if required by the type of mortgage
-        if (mortgage.mortgageType == Type.Buy) {
-            // Load the new cost of the parcel, it may be changed
-            (, , currentLandCost, ) = landMarket.auctionByAssetId(mortgage.landId);
-
-            // If the parcel is more expensive than before, cancel the transaction
-            require(currentLandCost <= mortgage.landCost);
-
-            // Buy the land and lock it into the mortgage contract
-            flagReceiveLand = mortgage.landId;
-            require(mana.approve(landMarket, currentLandCost));
-            landMarket.executeOrder(mortgage.landId, currentLandCost);
-            require(mana.approve(landMarket, 0));
-            require(flagReceiveLand == 0);
-            lockERC721(land, mortgage.landId);
-        }
+        // Load the new cost of the parcel, it may be changed
+        (, , currentLandCost, ) = landMarket.auctionByAssetId(mortgage.landId);
+        require(currentLandCost <= mortgage.landCost);
+        
+        // Buy the land and lock it into the mortgage contract
+        require(mana.approve(landMarket, currentLandCost));
+        flagReceiveLand = mortgage.landId;
+        landMarket.executeOrder(mortgage.landId, currentLandCost);
+        require(mana.approve(landMarket, 0));
+        require(flagReceiveLand == 0);
+        lockERC721(land, mortgage.landId);
 
         // Calculate the remaining amount to send to the borrower and 
         // check that we didn't expend any contract funds.
@@ -439,7 +379,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
         }
     }
 
-    function getData(uint256 id) public view returns (bytes o) {
+    function getData(uint256 id) pure returns (bytes o) {
         assembly {
             o := mload(0x40)
             mstore(0x40, add(o, and(add(add(32, 0x20), 0x1f), not(0x1f))))
