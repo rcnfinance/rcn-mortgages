@@ -257,18 +257,18 @@ contract NanoLoanEngine is ERC721, Engine, Ownable, TokenLockable {
     uint256 constant internal PRECISION = (10**18);
     uint256 constant internal RCN_DECIMALS = 18;
 
-    uint256 public constant VERSION = 230;
+    uint256 public constant VERSION = 232;
     string public constant VERSION_NAME = "Basalt";
 
     uint256 private activeLoans = 0;
     mapping(address => uint256) private lendersBalance;
 
     function name() public view returns (string _name) {
-        _name = "RCN - Nano loan engine - Basalt 230";
+        _name = "RCN - Nano loan engine - Basalt 232";
     }
 
     function symbol() public view returns (string _symbol) {
-        _symbol = "RCN-NLE-230";
+        _symbol = "RCN-NLE-232";
     }
 
     /**
@@ -291,41 +291,6 @@ contract NanoLoanEngine is ERC721, Engine, Ownable, TokenLockable {
     */
     function balanceOf(address _owner) public view returns (uint _balance) {
         _balance = lendersBalance[_owner];
-    }
-
-    /**
-        @notice Maps the indices of lenders loans to tokens ids
-        @dev Required for ERC-721 compliance, This method MUST NEVER be called by smart contract code.
-            it walks the entire loans array, and will probably create a transaction bigger than the gas limit.
-
-        @param _owner The owner address
-        @param _index Loan index for the owner
-
-        @return tokenId Real token index
-    */
-    function tokenOfOwnerByIndex(address _owner, uint256 _index) external view returns (uint tokenId) {
-        uint256 tokenCount = balanceOf(_owner);
-
-        if (tokenCount == 0 || _index >= tokenCount) {
-            // Fail transaction
-            revert();
-        } else {
-            uint256 totalLoans = loans.length - 1;
-            uint256 resultIndex = 0;
-
-            uint256 loanId;
-
-            for (loanId = 0; loanId <= totalLoans; loanId++) {
-                if (loans[loanId].lender == _owner && loans[loanId].status == Status.lent) {
-                    if (resultIndex == _index) {
-                        return loanId;
-                    }
-                    resultIndex++;
-                }
-            }
-
-            revert();
-        }
     }
 
     /**
@@ -1023,36 +988,6 @@ contract NanoLoanEngine is ERC721, Engine, Ownable, TokenLockable {
         require(rcn.transfer(to, amount));
         unlockTokens(rcn, amount);
         return true;
-    }
-
-    /**
-        @notice Withdraw lender funds in batch, it walks by all the loans between the two index, and withdraws all
-        the funds stored on that loans.
-
-        @dev This batch withdraw method can be expensive in gas, it must be used with care.
-
-        @param fromIndex Start index of the search
-        @param toIndex End index of the search
-        @param to Destination of the tokens
-
-        @return the total withdrawed 
-    */
-    function withdrawalRange(uint256 fromIndex, uint256 toIndex, address to) public returns (uint256) {
-        uint256 loanId;
-        uint256 totalWithdraw = 0;
-
-        for (loanId = fromIndex; loanId <= toIndex; loanId++) {
-            Loan storage loan = loans[loanId];
-            if (loan.lender == msg.sender) {
-                totalWithdraw += loan.lenderBalance;
-                loan.lenderBalance = 0;
-            }
-        }
-
-        require(rcn.transfer(to, totalWithdraw));
-        unlockTokens(rcn, totalWithdraw);
-        
-        return totalWithdraw;
     }
 
     /**

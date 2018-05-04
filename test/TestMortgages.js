@@ -6,6 +6,7 @@ var KyberMock = artifacts.require("./KyberMock.sol");
 var KyberOracle = artifacts.require("./KyberOracle.sol");
 var DecentralandMarket = artifacts.require("./utils/test/decentraland/Marketplace.sol");
 var MortgageManager = artifacts.require("./MortgageManager.sol");
+var MortgageCreator = artifacts.require("./MortgageCreator.sol");
 
 contract('NanoLoanEngine', function(accounts) {
     let manaCurrency;
@@ -17,6 +18,7 @@ contract('NanoLoanEngine', function(accounts) {
     let kyber;
     let landMarket;
     let mortgageManager;
+    let mortgageCreator;
 
     async function assertThrow(promise) {
         try {
@@ -65,6 +67,8 @@ contract('NanoLoanEngine', function(accounts) {
         landMarket = await DecentralandMarket.new(mana.address, land.address);
         // Deploy mortgage manager
         mortgageManager = await MortgageManager.new(rcn.address, mana.address, land.address, landMarket.address, kyber.address);
+        // Deploy mortgage creator
+        mortgageCreator = await MortgageCreator.new(mortgageManager.address, rcnEngine.address, rcn.address, mana.address, landMarket.address, kyberOracle.address)
     })
 
     function toInterestRate(r) {
@@ -121,6 +125,100 @@ contract('NanoLoanEngine', function(accounts) {
         // Get the mortgage ID
         let mortgageId = mortgageReceipt["logs"][0]["args"]["_id"]
     }
+
+    it("Create a loan in a single transaction", async() => {
+        // To use the mortgage manager the borrower
+        // should approve the MortgageManager contract to transfer his RCN
+        await rcn.approve(mortgageManager.address, 10**32, {from:accounts[0]})
+
+        // The borrower should approve the mortgage creator to move his MANA
+        await mana.approve(mortgageCreator.address, 10**32, {from:accounts[0]})
+
+        // The borrower should have enought MANA to pay the initial deposit
+        await mana.createTokens(accounts[0], 30 * 10 ** 18)
+        
+        // Create a land and create an order in the Decentraland Marketplace
+        await land.assignNewParcel(50, 60, accounts[1])
+        await land.setApprovalForAll(landMarket.address, true, {from:accounts[1]})
+        let landId = await land.encodeTokenId(50, 60)
+        await landMarket.createOrder(landId, 200 * 10**18, 10**30, {from:accounts[1]})
+
+        let loanDuration = 6 * 30 * 24 * 60 * 60
+        let closeTime = 5 * 30 * 24 * 60 * 60
+        let expirationRequest = Math.floor(Date.now() / 1000) + 1 * 30 * 24 * 60 * 60
+
+        let loanParams = [
+            web3.toWei(190), // Amount requested
+            toInterestRate(20), // Anual interest
+            toInterestRate(30), // Anual punnitory interest
+            loanDuration, // Duration of the loan, in seconds
+            closeTime, // Time when the payment of the loan starts
+            expirationRequest // Expiration timestamp of the request
+        ]
+
+        let loanMetadata = "#mortgage #required-cosigner:" + mortgageManager.address
+
+        // Retrieve the loan signature
+        let loanIdentifier = await rcnEngine.buildIdentifier(
+            kyberOracle.address, // Contract of the oracle
+            accounts[0], // Borrower of the loan (caller of this method)
+            mortgageCreator.address, // Creator of the loan, the mortgage creator
+            manaCurrency, // Currency of the loan, MANA
+            web3.toWei(190), // Request amount
+            toInterestRate(20), // Interest rate, 20% anual
+            toInterestRate(30), // Punnitory interest rate, 30% anual
+            loanDuration, // Duration of the loan, 6 months
+            closeTime, // Borrower can pay the loan at 5 months
+            expirationRequest, // Mortgage request expires in 1 month
+            loanMetadata  // Metadata
+        )
+
+        // Sign the loan
+        let approveSignature = await web3.eth.sign(accounts[0], loanIdentifier).slice(2)
+
+        let r = `0x${approveSignature.slice(0, 64)}`
+        let s = `0x${approveSignature.slice(64, 128)}`
+        let v = web3.toDecimal(approveSignature.slice(128, 130)) + 27
+
+        // Request a Mortgage
+        let mortgageReceipt = await mortgageCreator.requestMortgage(
+            loanParams, // Configuration of the loan request
+            loanMetadata, // Metadata of the loan
+            landId, // Id of the loan to buy
+            v, // Signature of the loan
+            r, // Signature of the loan
+            s  // Signature of the loan
+        )
+
+        // Get the mortgage and loan ID
+        let mortgageId = mortgageReceipt["logs"][0]["args"]["mortgageId"]
+        let loanId = mortgageReceipt["logs"][0]["args"]["loanId"]
+
+        assert.equal(mortgageId, 0)
+        assert.equal(loanId, 1)
+
+        // Check the loan
+        assert.equal(await rcnEngine.getBorrower(loanId), accounts[0])
+        assert.equal(await rcnEngine.getOracle(loanId), kyberOracle.address)
+        assert.equal(await rcnEngine.getCurrency(loanId), manaCurrency)
+        assert.equal(await rcnEngine.getAmount(loanId), web3.toWei(190))
+        assert.equal(await rcnEngine.getInterestRate(loanId), toInterestRate(20))
+        assert.equal(await rcnEngine.getInterestRatePunitory(loanId), toInterestRate(30))
+        assert.equal(await rcnEngine.getDuesIn(loanId), loanDuration)
+        assert.equal(await rcnEngine.getExpirationRequest(loanId), expirationRequest)
+        
+        // Check the mortgage
+        assert.equal(await mana.balanceOf(mortgageManager.address), web3.toWei(30))
+        let mortgageParams = await mortgageManager.mortgages(mortgageId)
+        assert.equal(mortgageParams[0], accounts[0]) // Owner
+        assert.equal(mortgageParams[1], rcnEngine.address) // Engine
+        assert.equal(mortgageParams[2], loanId.toNumber()) // Loan id
+        assert.equal(mortgageParams[3], web3.toWei(30)) // MANA Deposit
+        assert.equal(mortgageParams[4], landId.toNumber()) // Land id
+        assert.equal(mortgageParams[5], web3.toWei(200)) // Land cost
+        assert.equal(mortgageParams[6], 0) // Status of the mortgage
+        assert.equal(mortgageParams[7], 0x0) // Approved transfer
+    })
 
     it("Should request a mortgage", createMortgage)
 
