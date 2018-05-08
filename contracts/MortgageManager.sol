@@ -7,6 +7,7 @@ import "./interfaces/ERC721.sol";
 import "./utils/ERCLockable.sol";
 import "./utils/BytesUtils.sol";
 import "./interfaces/Oracle.sol";
+import "./interfaces/TokenChanger.sol";
 
 contract LandMarket {
     struct Auction {
@@ -22,22 +23,6 @@ contract LandMarket {
 
     mapping (uint256 => Auction) public auctionByAssetId;
     function executeOrder(uint256 assetId, uint256 price) public;
-}
-
-contract KyberNetwork {
-    function trade(
-        address src,
-        uint srcAmount,
-        address dest,
-        address destAddress,
-        uint maxDestAmount,
-        uint minConversionRate,
-        address walletId
-    ) public payable returns(uint);
-
-    function getExpectedRate(address src, address dest, uint srcQty)
-        public view
-        returns (uint expectedRate, uint slippageRate);
 }
 
 contract Land is ERC721 {
@@ -71,9 +56,8 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
     Token public mana;
     Land public land;
     LandMarket public landMarket;
-    KyberNetwork public kyberNetwork;
-
-    function MortgageManager(Token _rcn, Token _mana, Land _land, LandMarket _landMarket, KyberNetwork _kyberNetwork) public {
+    
+    function MortgageManager(Token _rcn, Token _mana, Land _land, LandMarket _landMarket) public {
         setTokenType(mana, ERCLockable.TokenType.ERC20);
         setTokenType(rcn, ERCLockable.TokenType.ERC20);
         setTokenType(land, ERCLockable.TokenType.ERC721);
@@ -81,7 +65,6 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
         mana = _mana;
         land = _land;
         landMarket = _landMarket;
-        kyberNetwork = _kyberNetwork;
     }
 
     enum Status { Pending, Ongoing, Canceled, Paid, Defaulted }
@@ -96,6 +79,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
         Status status;
         // ERC-721
         address approvedTransfer;
+        TokenChanger tokenChanger;
     }
 
     uint256 internal flagReceiveLand;
@@ -127,20 +111,21 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
         return 0;
     }
 
-    function requestMortgage(Engine engine, bytes32 loanIdentifier, uint256 deposit, uint256 landId) public returns (uint256 id) {
-        return requestMortgageId(engine, engine.identifierToIndex(loanIdentifier), deposit, landId);
+    function requestMortgage(Engine engine, bytes32 loanIdentifier, uint256 deposit, uint256 landId, TokenChanger tokenChanger) public returns (uint256 id) {
+        return requestMortgageId(engine, engine.identifierToIndex(loanIdentifier), deposit, landId, tokenChanger);
     }
 
     /**
         @notice Request a mortgage to buy a new loan
     */
-    function requestMortgageId(Engine engine, uint256 loanId, uint256 deposit, uint256 landId) public returns (uint256 id) {
+    function requestMortgageId(Engine engine, uint256 loanId, uint256 deposit, uint256 landId, TokenChanger tokenChanger) public returns (uint256 id) {
         // Validate the associated loan
         require(engine.getCurrency(loanId) == MANA_CURRENCY);
-        require(engine.getBorrower(loanId) == msg.sender);
+        address borrower = engine.getBorrower(loanId);
         require(engine.getStatus(loanId) == Engine.Status.initial);
         require(engine.isApproved(loanId));
-        require(rcn.allowance(msg.sender, this) >= REQUIRED_ALLOWANCE);
+        require(rcn.allowance(borrower, this) >= REQUIRED_ALLOWANCE);
+        require(tokenChanger != address(0));
 
         // Get the current parcel cost
         uint256 landCost;
@@ -157,19 +142,20 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
 
         // Create the liability
         id = mortgages.push(Mortgage({
-            owner: msg.sender,
+            owner: borrower,
             engine: engine,
             loanId: loanId,
             deposit: deposit,
             landId: landId,
             landCost: landCost,
             status: Status.Pending,
-            approvedTransfer: 0x0
+            approvedTransfer: 0x0,
+            tokenChanger: tokenChanger
         })) - 1;
 
         RequestedMortgage({
             _id: id,
-            _borrower: msg.sender,
+            _borrower: borrower,
             _engine: engine,
             _loanId: loanId,
             _landId: landId,
@@ -204,7 +190,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
     function requestCosign(Engine engine, uint256 index, bytes data, bytes oracleData) public returns (bool) {
         // The first word of the data MUST contain the index of the target mortgage
         Mortgage storage mortgage = mortgages[uint256(readBytes32(data, 0))];
-
+        
         // Validate that the loan matches with the mortgage
         // and the mortgage is still pending
         require(mortgage.engine == engine);
@@ -224,9 +210,9 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
         
         // Convert the RCN into MANA using KyberNetwork
         // and save the received MANA
-        require(rcn.approve(kyberNetwork, loanAmount));
-        uint256 boughtMana = kyberNetwork.trade(rcn, loanAmount, mana, this, 10 ** 30, 0, this);
-        require(rcn.approve(kyberNetwork, 0));
+        require(rcn.approve(mortgage.tokenChanger, loanAmount));
+        uint256 boughtMana = mortgage.tokenChanger.change(rcn, mana, loanAmount, 1);
+        delete mortgage.tokenChanger;
 
         // If the mortgage is of type Loan, this will remain 0
         uint256 currentLandCost;
@@ -245,7 +231,7 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
 
         // Calculate the remaining amount to send to the borrower and 
         // check that we didn't expend any contract funds.
-        uint256 totalMana = safeAdd(boughtMana, mortgage.deposit);
+        uint256 totalMana = safeAdd(boughtMana, mortgage.deposit);        
         uint256 rest = safeSubtract(totalMana, currentLandCost);
 
         // Return rest MANAowner
@@ -253,10 +239,10 @@ contract MortgageManager is Cosigner, ERC721, ERCLockable, BytesUtils {
 
         // Unlock MANA from deposit
         unlockERC20(mana, mortgage.deposit);
-
+        
         // Cosign contract
         require(mortgage.engine.cosign(index, 0));
-
+        
         // Save mortgage id registry
         mortgageByLandId[mortgage.landId] = uint256(readBytes32(data, 0));
 
