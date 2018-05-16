@@ -294,39 +294,6 @@ contract NanoLoanEngine is ERC721, Engine, Ownable, TokenLockable {
     }
 
     /**
-        @notice Returns all the loans that a lender possess
-        @dev This method MUST NEVER be called by smart contract code; 
-            it walks the entire loans array, and will probably create a transaction bigger than the gas limit.
-
-        @param _owner The owner address
-
-        @return ownerTokens List of all the loans of the _owner
-    */
-    function tokensOfOwner(address _owner) external view returns(uint256[] ownerTokens) {
-        uint256 tokenCount = balanceOf(_owner);
-
-        if (tokenCount == 0) {
-            // Return an empty array
-            return new uint256[](0);
-        } else {
-            uint256[] memory result = new uint256[](tokenCount);
-            uint256 totalLoans = loans.length - 1;
-            uint256 resultIndex = 0;
-
-            uint256 loanId;
-
-            for (loanId = 0; loanId <= totalLoans; loanId++) {
-                if (loans[loanId].lender == _owner && loans[loanId].status == Status.lent) {
-                    result[resultIndex] = loanId;
-                    resultIndex++;
-                }
-            }
-
-            return result;
-        }
-    }
-
-    /**
         @notice Returns true if the _operator can transfer the loans of the _owner
 
         @dev Required for ERC-721 compliance 
@@ -950,7 +917,7 @@ contract NanoLoanEngine is ERC721, Engine, Ownable, TokenLockable {
 
         @return The result of the convertion
     */
-    function convertRate(Oracle oracle, bytes32 currency, bytes data, uint256 amount) public returns (uint256) {
+    function convertRate(Oracle oracle, bytes32 currency, bytes data, uint256 amount) public view returns (uint256) {
         if (oracle == address(0)) {
             return amount;
         } else {
@@ -989,36 +956,7 @@ contract NanoLoanEngine is ERC721, Engine, Ownable, TokenLockable {
         unlockTokens(rcn, amount);
         return true;
     }
-
-    /**
-        @notice Withdraw lender funds in batch, it walks by all the loans passed to the function and withdraws all
-        the funds stored on that loans.
-
-        @dev This batch withdraw method can be expensive in gas, it must be used with care.
-
-        @param loanIds Array of the loans to withdraw
-        @param to Destination of the tokens
-
-        @return the total withdrawed 
-    */
-    function withdrawalList(uint256[] memory loanIds, address to) public returns (uint256) {
-        uint256 inputId;
-        uint256 totalWithdraw = 0;
-
-        for (inputId = 0; inputId < loanIds.length; inputId++) {
-            Loan storage loan = loans[loanIds[inputId]];
-            if (loan.lender == msg.sender) {
-                totalWithdraw += loan.lenderBalance;
-                loan.lenderBalance = 0;
-            }
-        }
-
-        require(rcn.transfer(to, totalWithdraw));
-        unlockTokens(rcn, totalWithdraw);
-
-        return totalWithdraw;
-    }
-
+    
     /**
         @dev Deprecates the engine, locks the creation of new loans.
     */

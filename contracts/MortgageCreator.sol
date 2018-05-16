@@ -1,8 +1,9 @@
 pragma solidity ^0.4.19;
 
 import "./interfaces/Token.sol";
-import "./interfaces/TokenChanger.sol";
+import "./interfaces/TokenConverter.sol";
 import "./MortgageManager.sol";
+import "./ERC721Base.sol";
 
 interface NanoLoanEngine {
     function createLoan(address _oracleContract, address _borrower, bytes32 _currency, uint256 _amount, uint256 _interestRate,
@@ -18,7 +19,7 @@ contract MortgageCreator {
     Token public rcn;
     Token public mana;
     LandMarket public landMarket;
-    TokenChanger public tokenChanger;
+    TokenConverter public tokenConverter;
 
     address public manaOracle;
     uint256 public requiredTotal = 110;
@@ -34,7 +35,7 @@ contract MortgageCreator {
         Token _mana,
         LandMarket _landMarket,
         address _manaOracle,
-        TokenChanger _tokenChanger
+        TokenConverter _tokenConverter
     ) public {
         mortgageManager = _mortgageManager;
         nanoLoanEngine = _nanoLoanEngine;
@@ -42,7 +43,7 @@ contract MortgageCreator {
         mana = _mana;
         landMarket = _landMarket;
         manaOracle = _manaOracle;
-        tokenChanger = _tokenChanger;
+        tokenConverter = _tokenConverter;
     }
 
     function createLoan(uint256[6] memory params, string metadata) internal returns (uint256) {
@@ -72,7 +73,7 @@ contract MortgageCreator {
         require(mana.transferFrom(msg.sender, this, requiredDeposit));
         require(mana.approve(mortgageManager, requiredDeposit));
 
-        uint256 mortgageId = mortgageManager.requestMortgageId(Engine(nanoLoanEngine), loanId, requiredDeposit, landId, tokenChanger);
+        uint256 mortgageId = mortgageManager.requestMortgageId(Engine(nanoLoanEngine), loanId, requiredDeposit, landId, tokenConverter);
         NewMortgage(msg.sender, loanId, landId, mortgageId);
         
         return mortgageId;
