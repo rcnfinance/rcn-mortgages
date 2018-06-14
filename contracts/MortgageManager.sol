@@ -202,7 +202,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         uint256 loanAmount = convertRate(engine.getOracle(index), engine.getCurrency(index), oracleData, engine.getAmount(index));
         require(rcn.transferFrom(mortgage.owner, this, loanAmount));
         
-        // Convert the RCN into MANA using KyberNetwork
+        // Convert the RCN into MANA using the designated
         // and save the received MANA
         require(rcn.approve(mortgage.tokenConverter, loanAmount));
         uint256 boughtMana = mortgage.tokenConverter.convert(rcn, mana, loanAmount, 1);
@@ -263,14 +263,15 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         // Delete mortgage id registry
         delete mortgageByLandId[mortgage.landId];
 
+        // Unlock the Parcel token
+        unlockERC721(land, mortgage.landId);
+
         if (mortgage.owner == msg.sender) {
             // Check that the loan is paid
-            require(mortgage.engine.getStatus(loanId) == Engine.Status.paid ||
-                mortgage.engine.getStatus(loanId) == Engine.Status.destroyed);
+            require(mortgage.engine.getStatus(loanId) == Engine.Status.paid || mortgage.engine.getStatus(loanId) == Engine.Status.destroyed);
             mortgage.status = Status.Paid;
             // Transfer the parcel to the borrower
             land.safeTransferFrom(this, mortgage.owner, mortgage.landId);
-            unlockERC721(land, mortgage.landId);
             emit PaidMortgage(mortgageId);
             return true;
         } else if (mortgage.engine.ownerOf(loanId) == msg.sender) {
@@ -279,9 +280,10 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
             mortgage.status = Status.Defaulted;
             // Transfer the parcel to the lender
             land.safeTransferFrom(this, msg.sender, mortgage.landId);
-            unlockERC721(land, mortgage.landId);
             emit DefaultedMortgage(mortgageId);
             return true;
+        } else {
+            revert();
         }
     }
 
