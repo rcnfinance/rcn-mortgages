@@ -7,7 +7,7 @@ const KyberOracle = artifacts.require("./KyberOracle.sol");
 const KyberChanger = artifacts.require("./changers/KyberTokenExchanger.sol")
 const DecentralandMarket = artifacts.require("./utils/test/decentraland/Marketplace.sol");
 const MortgageManager = artifacts.require("./MortgageManager.sol");
-const MortgageCreator = artifacts.require("./MortgageCreator.sol");
+const MortgageHelper = artifacts.require("./MortgageHelper.sol");
 
 const BancorConverter = artifacts.require('./utils/test/bancor/BancorConverter.sol');
 const SmartToken = artifacts.require('./utils/test/bancor/SmartToken.sol');
@@ -15,9 +15,8 @@ const BancorFormula = artifacts.require('./utils/test/bancor/BancorFormula.sol')
 const BancorGasPriceLimit = artifacts.require('./utils/test/bancor/BancorGasPriceLimit.sol');
 const BancorQuickConverter = artifacts.require('./utils/test/bancor/BancorQuickConverter.sol');
 const BancorConverterExtensions = artifacts.require('./utils/test/bancor/BancorConverterExtensions.sol');
-const TestERC20Token = artifacts.require('./utils/test/bancor/TestERC20Token.sol');
-const EtherToken = artifacts.require('./utils/test/bancor/EtherToken.sol');
 const BancorOracle = artifacts.require('./BancorOracle.sol');
+const ConverterRamp = artifacts.require('./ConverterRamp.sol');
 
 contract('NanoLoanEngine', function(accounts) {
     let manaCurrency;
@@ -30,10 +29,11 @@ contract('NanoLoanEngine', function(accounts) {
     let kyberChanger;
     let landMarket;
     let mortgageManager;
-    let mortgageCreator;
+    let mortgageHelper;
     let bancorConverter;
     let bancorOracle;
     let smartToken;
+    let converterRamp;
 
     async function assertThrow(promise) {
         try {
@@ -68,6 +68,8 @@ contract('NanoLoanEngine', function(accounts) {
         landMarket = await DecentralandMarket.new(mana.address, land.address);
         // Deploy mortgage manager
         mortgageManager = await MortgageManager.new(rcn.address, mana.address, land.address, landMarket.address);
+        // Deploy ramp
+        converterRamp = await ConverterRamp.new();
     })
 
     async function setKyber() {
@@ -88,9 +90,9 @@ contract('NanoLoanEngine', function(accounts) {
         // Deploy kyber changer
         kyberChanger = await KyberChanger.new(kyber.address);
         // Deploy mortgage creator
-        mortgageCreator = await MortgageCreator.new(mortgageManager.address, rcnEngine.address, rcn.address, mana.address, landMarket.address, kyberOracle.address, kyberChanger.address)
+        mortgageHelper = await MortgageHelper.new(mortgageManager.address, rcnEngine.address, rcn.address, mana.address, landMarket.address, kyberOracle.address, kyberChanger.address, converterRamp.address)
         // Whitelist the mortgage creator
-        await mortgageManager.setCreator(mortgageCreator.address, true);
+        await mortgageManager.setCreator(mortgageHelper.address, true);
     }
 
     async function setBancor() {
@@ -118,9 +120,9 @@ contract('NanoLoanEngine', function(accounts) {
         await bancorOracle.setRcn(rcn.address)
         await bancorOracle.addCurrencyConverter("MANA", mana.address, converter.address)
         // Deploy mortgage creator
-        mortgageCreator = await MortgageCreator.new(mortgageManager.address, rcnEngine.address, rcn.address, mana.address, landMarket.address, bancorOracle.address, converter.address)
+        mortgageHelper = await MortgageHelper.new(mortgageManager.address, rcnEngine.address, rcn.address, mana.address, landMarket.address, bancorOracle.address, converter.address, converterRamp.address)
         // Whitelist the mortgage creator
-        await mortgageManager.setCreator(mortgageCreator.address, true);
+        await mortgageManager.setCreator(mortgageHelper.address, true);
     }
 
     function toInterestRate(r) {
@@ -187,7 +189,7 @@ contract('NanoLoanEngine', function(accounts) {
         await rcn.approve(mortgageManager.address, 10**32, {from:accounts[0]})
 
         // The borrower should approve the mortgage creator to move his MANA
-        await mana.approve(mortgageCreator.address, 10**32, {from:accounts[0]})
+        await mana.approve(mortgageHelper.address, 10**32, {from:accounts[0]})
 
         // The borrower should have enought MANA to pay the initial deposit
         await mana.createTokens(accounts[0], 30 * 10 ** 18)
@@ -217,7 +219,7 @@ contract('NanoLoanEngine', function(accounts) {
         let loanIdentifier = await rcnEngine.buildIdentifier(
             kyberOracle.address, // Contract of the oracle
             accounts[0], // Borrower of the loan (caller of this method)
-            mortgageCreator.address, // Creator of the loan, the mortgage creator
+            mortgageHelper.address, // Creator of the loan, the mortgage creator
             manaCurrency, // Currency of the loan, MANA
             web3.toWei(190), // Request amount
             toInterestRate(20), // Interest rate, 20% anual
@@ -236,7 +238,7 @@ contract('NanoLoanEngine', function(accounts) {
         let v = web3.toDecimal(approveSignature.slice(128, 130)) + 27
 
         // Request a Mortgage
-        let mortgageReceipt = await mortgageCreator.requestMortgage(
+        let mortgageReceipt = await mortgageHelper.requestMortgage(
             loanParams, // Configuration of the loan request
             loanMetadata, // Metadata of the loan
             landId, // Id of the loan to buy
@@ -282,7 +284,7 @@ contract('NanoLoanEngine', function(accounts) {
         await rcn.approve(mortgageManager.address, 10**32, {from:accounts[0]})
 
         // The borrower should approve the mortgage creator to move his MANA
-        await mana.approve(mortgageCreator.address, 10**32, {from:accounts[0]})
+        await mana.approve(mortgageHelper.address, 10**32, {from:accounts[0]})
 
         // The borrower should have enought MANA to pay the initial deposit
         await mana.createTokens(accounts[0], 30 * 10 ** 18)
@@ -312,7 +314,7 @@ contract('NanoLoanEngine', function(accounts) {
         let loanIdentifier = await rcnEngine.buildIdentifier(
             bancorOracle.address, // Contract of the oracle
             accounts[0], // Borrower of the loan (caller of this method)
-            mortgageCreator.address, // Creator of the loan, the mortgage creator
+            mortgageHelper.address, // Creator of the loan, the mortgage creator
             manaCurrency, // Currency of the loan, MANA
             web3.toWei(190), // Request amount
             toInterestRate(20), // Interest rate, 20% anual
@@ -331,7 +333,7 @@ contract('NanoLoanEngine', function(accounts) {
         let v = web3.toDecimal(approveSignature.slice(128, 130)) + 27
 
         // Request a Mortgage
-        let mortgageReceipt = await mortgageCreator.requestMortgage(
+        let mortgageReceipt = await mortgageHelper.requestMortgage(
             loanParams, // Configuration of the loan request
             loanMetadata, // Metadata of the loan
             landId, // Id of the loan to buy
@@ -458,6 +460,70 @@ contract('NanoLoanEngine', function(accounts) {
         assert.equal(await mortgageManager.totalSupply(), 0)
     })
 
+    it("Should be payable from the mortgage helper", async() => {
+        await setBancor();
+
+        // Buy land and put it to sell
+        await land.assignNewParcel(50, 60, accounts[1])
+        await land.setApprovalForAll(landMarket.address, true, {from:accounts[1]})
+        let landId = await land.encodeTokenId(50, 60)
+        await landMarket.createOrder(landId, 200 * 10**18, 10**30, {from:accounts[1]})
+
+        // Request a loan for the mortgage it should be index 0
+        let loanReceipt = await rcnEngine.createLoan(bancorOracle.address, accounts[2], manaCurrency, 190*10**18, 100000000, 100000000, 86400, 0, 10**30, "Test mortgage Bancor", {from:accounts[2]});
+        let loanId = loanReceipt["logs"][0]["args"]["_index"];
+
+        // Authorize mortgage manager
+        await rcn.approve(mortgageManager.address, 10**32, {from:accounts[2]})
+        
+        console.log("Test log")
+        console.log(converter.address);
+
+        // Mint MANA and Request mortgage
+        await mana.createTokens(accounts[2], 40*10**18);
+        await mana.approve(mortgageManager.address, 40*10**18, {from:accounts[2]})
+        await mortgageManager.requestMortgageId(rcnEngine.address, loanId, 40*10**18, landId, bancorConverter.address, {from:accounts[2]});
+        let cosignerData = await mortgageManager.getData(1);
+
+        // Lendadd
+        await rcn.createTokens(accounts[3], 10**32);
+        await rcn.approve(rcnEngine.address, 10**32, {from:accounts[3]});
+        await rcn.approve(bancorConverter.address, 1 * 10**18, {from:accounts[3]});
+        // await bancorConverter.change(rcn.address, mana.address, 100, 1, {from:accounts[3]});
+
+        await rcnEngine.lend(loanId, [], mortgageManager.address, cosignerData, {from:accounts[3]});
+
+        // Check that the mortgage started
+        assert.equal(await land.ownerOf(landId), mortgageManager.address);
+        assert.equal(await mana.balanceOf(accounts[1]), 200*10**18);
+        assert.equal(await mana.balanceOf(mortgageManager.address), 0)
+        assert.equal(await rcn.balanceOf(mortgageManager.address), 0)
+        assert.equal(await rcnEngine.getCosigner(loanId), mortgageManager.address)
+        
+        let mortgage = await mortgageManager.mortgages(1);
+        assert.equal(mortgage[0], accounts[2], "Borrower address")
+        assert.equal(mortgage[1], rcnEngine.address, "Engine address")
+        assert.equal(mortgage[2].toNumber(), 1, "Loan ID should be 1")
+        assert.equal(mortgage[3].toNumber(), 40*10**18, "Deposit is 40 MANA")
+        assert.equal(mortgage[5].toNumber(), 200*10**18, "Check land cost")
+        assert.equal(mortgage[6].toNumber(), 1, "Status should be Ongoing")
+
+        // Also test the ERC-721
+        assert.equal(await mortgageManager.balanceOf(accounts[2]), 1)
+        assert.equal(await mortgageManager.totalSupply(), 1)
+
+        // Try to claim the mortgage witout default or payment
+        await assertThrow(mortgageManager.claim(rcnEngine.address, 0, [], {from:accounts[2]})) // As borrower
+        await assertThrow(mortgageManager.claim(rcnEngine.address, 0, [], {from:accounts[3]})) // As lender
+
+        // Perform a partial payment
+        await mana.createTokens(accounts[2], 101*10**18)
+        await mana.approve(mortgageHelper.address, 40*10**45, {from:accounts[2]})
+        await mortgageHelper.pay(bancorConverter.address, rcnEngine.address, loanId, 101*10**18, {from:accounts[2]})
+
+        assert.isAtLeast(await rcnEngine.getPaid(loanId), 101 * 10 ** 18);
+    })
+
     it("Test mortgage creation and payment", async() => {
         await setKyber();
 
@@ -519,6 +585,7 @@ contract('NanoLoanEngine', function(accounts) {
         assert.equal(await land.ownerOf(landId), accounts[2])
         assert.equal(mortgage[6].toNumber(), 3, "Status should be Paid")
 
+        console.log(converterRamp.address);
         // Also test the ERC-721
         assert.equal(await mortgageManager.balanceOf(accounts[2]), 0)
         assert.equal(await mortgageManager.totalSupply(), 0)
