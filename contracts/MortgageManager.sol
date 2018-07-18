@@ -116,7 +116,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         require(engine.getCurrency(loanId) == MANA_CURRENCY);
         address borrower = engine.getBorrower(loanId);
         require(engine.getStatus(loanId) == Engine.Status.initial);
-        require(msg.sender == engine.getBorrower(loanId) || (msg.sender == engine.getCreator(loanId) && creators[msg.sender]));
+        require(msg.sender == borrower || (msg.sender == engine.getCreator(loanId) && creators[msg.sender]));
         require(engine.isApproved(loanId));
         require(rcn.allowance(borrower, this) >= REQUIRED_ALLOWANCE);
         require(tokenConverter != address(0));
