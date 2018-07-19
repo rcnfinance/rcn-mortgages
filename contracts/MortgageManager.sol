@@ -266,8 +266,10 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         @return true If the cosign was performed
     */
     function requestCosign(Engine engine, uint256 index, bytes data, bytes oracleData) public returns (bool) {
+        // Get mortgage index on mortgages array
+        uint256 mortgageId = uint256(readBytes32(data, 0));
         // The first word of the data MUST contain the index of the target mortgage
-        Mortgage storage mortgage = mortgages[uint256(readBytes32(data, 0))];
+        Mortgage storage mortgage = mortgages[mortgageId];
         
         // Validate that the loan matches with the mortgage
         // and the mortgage is still pending
@@ -279,7 +281,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         mortgage.status = Status.Ongoing;
 
         // Mint mortgage ERC721 Token
-        _generate(uint256(readBytes32(data, 0)), mortgage.owner);
+        _generate(mortgageId), mortgage.owner);
 
         // Transfer the amount of the loan in RCN to this contract
         uint256 loanAmount = convertRate(engine.getOracle(index), engine.getCurrency(index), oracleData, engine.getAmount(index));
@@ -319,10 +321,10 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         require(mortgage.engine.cosign(index, 0), "Error performing cosign");
         
         // Save mortgage id registry
-        mortgageByLandId[mortgage.landId] = uint256(readBytes32(data, 0));
+        mortgageByLandId[mortgage.landId] = mortgageId);
 
         // Emit mortgage event
-        emit StartedMortgage(uint256(readBytes32(data, 0)));
+        emit StartedMortgage(mortgageId));
 
         return true;
     }
