@@ -26,6 +26,9 @@ interface MortgageManager {
     function requestMortgageId(Engine, uint256, uint256, uint256, TokenConverter) public returns (uint256);
 }
 
+/**
+    @notice Set of functions to operate the mortgage manager in less transactions
+*/
 contract MortgageHelper is Ownable {
     using LrpSafeMath for uint256;
 
@@ -67,6 +70,21 @@ contract MortgageHelper is Ownable {
         converterRamp = _converterRamp;
     }
 
+    /**
+        @dev Creates a loan using an array of parameters
+
+        @param params 0 - Ammount
+                      1 - Interest rate
+                      2 - Interest rate punitory
+                      3 - Dues in
+                      4 - Cancelable at
+                      5 - Expiration of request
+
+        @param metadata Loan metadata
+
+        @return Id of the loan
+
+    */
     function createLoan(uint256[6] memory params, string metadata) internal returns (uint256) {
         return nanoLoanEngine.createLoan(
             manaOracle,
@@ -82,44 +100,110 @@ contract MortgageHelper is Ownable {
         );
     }
 
+    /**
+        @notice Sets a new converter ramp to delegate the pay of the loan
+        @dev Only owner
+        @param _converterRamp Address of the converter ramp contract
+        @return true If the change was made
+    */
     function setConverterRamp(ConverterRamp _converterRamp) public onlyOwner returns (bool) {
         converterRamp = _converterRamp;
         return true;
     }
 
+    /**
+        @notice Sets a new min of tokens to rebuy when paying a loan
+        @dev Only owner
+        @param _rebuyThreshold New rebuyThreshold value
+        @return true If the change was made
+    */
     function setRebuyThreshold(uint256 _rebuyThreshold) public onlyOwner returns (bool) {
         rebuyThreshold = _rebuyThreshold;
         return true;
     }
 
+    /**
+        @notice Sets how much the converter ramp is going to oversell to cover fees and gaps
+        @dev Only owner
+        @param _marginSpend New marginSpend value
+        @return true If the change was made
+    */
     function setMarginSpend(uint256 _marginSpend) public onlyOwner returns (bool) {
         marginSpend = _marginSpend;
         return true;
     }
 
+    /**
+        @notice Sets the token converter used to convert the MANA into RCN when performing the payment
+        @dev Only owner
+        @param _tokenConverter Address of the tokenConverter contract
+        @return true If the change was made
+    */
     function setTokenConverter(TokenConverter _tokenConverter) public onlyOwner returns (bool) {
         tokenConverter = _tokenConverter;
         return true;
     }
 
-    function requestMortgage(uint256[6] memory loanParams, string metadata, uint256 landId, uint8 v, bytes32 r, bytes32 s) public returns (uint256) {
+    /**
+        @notice Request a loan and attachs a mortgage request
+
+        @dev Requires the loan signed by the borrower
+
+        @param loanParams   0 - Ammount
+                            1 - Interest rate
+                            2 - Interest rate punitory
+                            3 - Dues in
+                            4 - Cancelable at
+                            5 - Expiration of request
+        @param metadata Loan metadata
+        @param landId Land to buy with the mortgage
+        @param v Loan signature by the borrower
+        @param r Loan signature by the borrower
+        @param s Loan signature by the borrower
+
+        @return The id of the mortgage
+    */
+    function requestMortgage(
+        uint256[6] memory loanParams,
+        string metadata,
+        uint256 landId,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) public returns (uint256) {
+        // Create a loan with the loanParams and metadata
         uint256 loanId = createLoan(loanParams, metadata);
+
+        // Approve the created loan with the provided signature
         require(nanoLoanEngine.registerApprove(nanoLoanEngine.getIdentifier(loanId), v, r, s));
 
+        // Calculate the requested amount for the mortgage deposit
         uint256 landCost;
         (, , landCost, ) = landMarket.auctionByAssetId(landId);
-
         uint256 requiredDeposit = ((landCost * requiredTotal) / 100) - nanoLoanEngine.getAmount(loanId);
         
+        // Pull the required deposit amount
         require(mana.transferFrom(msg.sender, this, requiredDeposit));
         require(mana.approve(mortgageManager, requiredDeposit));
 
+        // Create the mortgage request
         uint256 mortgageId = mortgageManager.requestMortgageId(Engine(nanoLoanEngine), loanId, requiredDeposit, landId, tokenConverter);
         NewMortgage(msg.sender, loanId, landId, mortgageId);
         
         return mortgageId;
     }
 
+    /**
+        @notice Pays a loan using mana
+
+        @dev The amount to pay must be set on mana
+
+        @param engine RCN Engine
+        @param loan Loan id to pay
+        @param amount Amount in MANA to pay
+
+        @returns True if the payment was performed
+    */
     function pay(address engine, uint256 loan, uint256 amount) public returns (bool) {
         bytes32[4] memory loanParams = [
             bytes32(engine),

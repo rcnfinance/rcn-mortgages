@@ -32,6 +32,15 @@ contract Land is ERC721 {
     function safeTransferFrom(address from, address to, uint256 assetId) public;
 }
 
+/**
+    @notice The contract is used to handle all the lifetime of a mortgage, uses RCN for the Loan and Decentraland for the parcels. 
+
+    Implements the Cosigner interface of RCN, and when is tied to a loan it creates a new ERC721 to handle the ownership of the mortgage.
+
+    When the loan is resolved (paid, pardoned or defaulted), the mortgaged parcel can be recovered. 
+
+    Uses a token converter to buy the Decentraland parcel with MANA using the RCN tokens received.
+*/
 contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
     uint256 constant internal PRECISION = (10**18);
     uint256 constant internal RCN_DECIMALS = 18;
@@ -92,26 +101,78 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
     mapping(uint256 => uint256) public mortgageByLandId;
     mapping(address => mapping(uint256 => uint256)) public loanToLiability;
 
-    function setCreator(address creator, bool authorized) public onlyOwner returns (bool) {
-        creators[creator] = authorized;
-    }
-
     function url() public view returns (string) {
         return "";
     }
 
+    /**
+        @notice Sets a new third party creator
+        
+        The third party creator can request loans for other borrowers. The creator should be a trusted contract, it could potentially take funds.
+    
+        @param creator Address of the creator
+        @param authorized Enables or disables the permission
+
+        @return true If the operation was executed
+    */
+    function setCreator(address creator, bool authorized) public onlyOwner returns (bool) {
+        creators[creator] = authorized;
+    }
+
+    /**
+        @notice Returns the cost of the cosigner
+
+        This cosigner does not have any risk or maintenance cost, so its free.
+
+        @return 0, because it's free
+    */
     function cost(address, uint256, bytes, bytes) public view returns (uint256) {
         return 0;
     }
 
-    function requestMortgage(Engine engine, bytes32 loanIdentifier, uint256 deposit, uint256 landId, TokenConverter tokenConverter) public returns (uint256 id) {
+    /**
+        @notice Requests a mortgage with a loan identifier
+
+        @dev The loan should exist in the designated engine
+
+        @param engine RCN Engine
+        @param loanIdentifier Identifier of the loan asociated with the mortgage
+        @param deposit MANA to cover part of the cost of the parcel
+        @param landId ID of the parcel to buy with the mortgage
+        @param tokenConverter Token converter used to exchange RCN - MANA
+
+        @return id The id of the mortgage
+    */
+    function requestMortgage(
+        Engine engine,
+        bytes32 loanIdentifier,
+        uint256 deposit,
+        uint256 landId,
+        TokenConverter tokenConverter
+    ) public returns (uint256 id) {
         return requestMortgageId(engine, engine.identifierToIndex(loanIdentifier), deposit, landId, tokenConverter);
     }
 
     /**
-        @notice Request a mortgage to buy a new loan
+        @notice Request a mortgage with a loan id
+
+        @dev The loan should exist in the designated engine
+
+        @param engine RCN Engine
+        @param loanId Id of the loan asociated with the mortgage
+        @param deposit MANA to cover part of the cost of the parcel
+        @param landId ID of the parcel to buy with the mortgage
+        @param tokenConverter Token converter used to exchange RCN - MANA
+
+        @return id The id of the mortgage
     */
-    function requestMortgageId(Engine engine, uint256 loanId, uint256 deposit, uint256 landId, TokenConverter tokenConverter) public returns (uint256 id) {
+    function requestMortgageId(
+        Engine engine,
+        uint256 loanId,
+        uint256 deposit,
+        uint256 landId,
+        TokenConverter tokenConverter
+    ) public returns (uint256 id) {
         // Validate the associated loan
         require(engine.getCurrency(loanId) == MANA_CURRENCY);
         address borrower = engine.getBorrower(loanId);
@@ -161,6 +222,10 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
 
     /**
         @notice Cancels an existing mortgage
+        @dev The mortgage status should be pending
+        @param id Id of the mortgage
+        @return true If the operation was executed
+
     */
     function cancelMortgage(uint256 id) public returns (bool) {
         Mortgage storage mortgage = mortgages[id];
@@ -181,7 +246,16 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
 
     /**
         @notice Request the cosign of a loan
-        @dev Required for RCN Cosigner compliance
+
+        Buys the parcel and locks its ownership until the loan status is resolved.
+        Emits an ERC721 to manage the ownership of the mortgaged property.
+    
+        @param engine Engine of the loan
+        @param index Index of the loan
+        @param data Data with the mortgage id
+        @param oracleData Oracle data to calculate the loan amount
+
+        @return true If the cosign was performed
     */
     function requestCosign(Engine engine, uint256 index, bytes data, bytes oracleData) public returns (bool) {
         // The first word of the data MUST contain the index of the target mortgage
@@ -193,6 +267,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         require(mortgage.loanId == index);
         require(mortgage.status == Status.Pending);
 
+        // Update the status of the mortgage to avoid reentrancy
         mortgage.status = Status.Ongoing;
 
         // Mint mortgage ERC721 Token
@@ -208,10 +283,8 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         uint256 boughtMana = mortgage.tokenConverter.convert(rcn, mana, loanAmount, 1);
         delete mortgage.tokenConverter;
 
-        // If the mortgage is of type Loan, this will remain 0
-        uint256 currentLandCost;
-
         // Load the new cost of the parcel, it may be changed
+        uint256 currentLandCost;
         (, , currentLandCost, ) = landMarket.auctionByAssetId(mortgage.landId);
         require(currentLandCost <= mortgage.landCost);
         
@@ -228,13 +301,13 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         uint256 totalMana = safeAdd(boughtMana, mortgage.deposit);        
         uint256 rest = safeSubtract(totalMana, currentLandCost);
 
-        // Return rest MANAowner
+        // Return rest of MANA to the owner
         require(mana.transfer(mortgage.owner, rest));
 
         // Unlock MANA from deposit
         unlockERC20(mana, mortgage.deposit);
         
-        // Cosign contract
+        // Cosign contract, 0 is the RCN required
         require(mortgage.engine.cosign(index, 0));
         
         // Save mortgage id registry
@@ -247,7 +320,14 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
     }
 
     /**
-        @notice Claims the mortgage by the lender/borrower
+        @notice Claims the mortgage when the loan status is resolved and transfers the ownership of the parcel to which corresponds.
+
+        @dev Deletes the mortgage ERC721
+
+        @param engine RCN Engine
+        @param loanId Loan ID
+        
+        @return true If the claim succeded
     */
     function claim(address engine, uint256 loanId, bytes) public returns (bool) {
         uint256 mortgageId = loanToLiability[engine][loanId];
@@ -290,6 +370,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
     /**
         @notice Defines a custom logic that determines if a loan is defaulted or not.
 
+        @param engine RCN Engines
         @param index Index of the loan
 
         @return true if the loan is considered defaulted
@@ -299,10 +380,18 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
             safeAdd(engine.getDueTime(index), 7 days) <= block.timestamp;
     }
 
+    /**
+        @dev An alternative version of the ERC721 callback, required by a bug in the parcels contract
+    */
     function onERC721Received(uint256 _tokenId, address _from, bytes data) public returns (bytes4) {
         return onERC721Received(_from, _tokenId, data);
     }
 
+    /**
+        @notice Callback used to accept the ERC721 parcel tokens
+
+        @dev Only accepts tokens if flag is set to tokenId, resets the flag when called
+    */
     function onERC721Received(address _from, uint256 _tokenId, bytes data) public returns (bytes4) {
         if (msg.sender == address(land) && flagReceiveLand == _tokenId) {
             flagReceiveLand = 0;
@@ -310,6 +399,9 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         }
     }
 
+    /**
+        @dev Reads data from a bytes array
+    */
     function getData(uint256 id) pure returns (bytes o) {
         assembly {
             o := mload(0x40)
@@ -319,6 +411,14 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         }
     }
     
+    /**
+        @notice Enables the owner of a parcel to update the data field
+
+        @param id Id of the parcel
+        @param data New data
+
+        @return true If data was updated
+    */
     function updateLandData(uint256 id, string data) public returns (bool) {
         Mortgage memory mortgage = mortgages[id];
         require(msg.sender == mortgage.owner);
@@ -329,6 +429,9 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         return true;
     }
 
+    /**
+        @dev Replica of the convertRate function of the RCN Engine, used to apply the oracle rate
+    */
     function convertRate(Oracle oracle, bytes32 currency, bytes data, uint256 amount) internal returns (uint256) {
         if (oracle == address(0)) {
             return amount;
