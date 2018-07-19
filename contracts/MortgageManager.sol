@@ -61,6 +61,8 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
     event CanceledMortgage(uint256 _id);
     event PaidMortgage(uint256 _id);
     event DefaultedMortgage(uint256 _id);
+    event UpdatedLandData(address _updater, uint256 _parcel, string _data);
+    event SetCreator(address _creator, bool _status);
 
     Token public rcn;
     Token public mana;
@@ -116,7 +118,9 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         @return true If the operation was executed
     */
     function setCreator(address creator, bool authorized) public onlyOwner returns (bool) {
+        emit SetCreator(creator, authorized);
         creators[creator] = authorized;
+        return true;
     }
 
     /**
@@ -429,6 +433,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         int256 y;
         (x, y) = land.decodeTokenId(mortgage.landId);
         land.updateLandData(x, y, data);
+        emit UpdatedLandData(msg.sender, id, data);
         return true;
     }
 

@@ -49,6 +49,11 @@ contract MortgageHelper is Ownable {
     bytes32 public constant MANA_CURRENCY = 0x4d414e4100000000000000000000000000000000000000000000000000000000;
 
     event NewMortgage(address borrower, uint256 loanId, uint256 landId, uint256 mortgageId);
+    event PaidLoan(address engine, uint256 loanId, uint256 amount);
+    event SetConverterRamp(address _prev, address _new);
+    event SetTokenConverter(address _prev, address _new);
+    event SetRebuyThreshold(uint256 _prev, uint256 _new);
+    event SetMarginSpend(uint256 _prev, uint256 _new);
 
     function MortgageHelper(
         MortgageManager _mortgageManager,
@@ -68,6 +73,9 @@ contract MortgageHelper is Ownable {
         manaOracle = _manaOracle;
         tokenConverter = _tokenConverter;
         converterRamp = _converterRamp;
+
+        emit SetConverterRamp(converterRamp, _converterRamp);
+        emit SetTokenConverter(tokenConverter, _tokenConverter);
     }
 
     /**
@@ -107,6 +115,7 @@ contract MortgageHelper is Ownable {
         @return true If the change was made
     */
     function setConverterRamp(ConverterRamp _converterRamp) public onlyOwner returns (bool) {
+        emit SetConverterRamp(converterRamp, _converterRamp);
         converterRamp = _converterRamp;
         return true;
     }
@@ -118,6 +127,7 @@ contract MortgageHelper is Ownable {
         @return true If the change was made
     */
     function setRebuyThreshold(uint256 _rebuyThreshold) public onlyOwner returns (bool) {
+        emit SetRebuyThreshold(rebuyThreshold, _rebuyThreshold);
         rebuyThreshold = _rebuyThreshold;
         return true;
     }
@@ -129,6 +139,7 @@ contract MortgageHelper is Ownable {
         @return true If the change was made
     */
     function setMarginSpend(uint256 _marginSpend) public onlyOwner returns (bool) {
+        emit SetMarginSpend(marginSpend, _marginSpend);
         marginSpend = _marginSpend;
         return true;
     }
@@ -140,6 +151,7 @@ contract MortgageHelper is Ownable {
         @return true If the change was made
     */
     function setTokenConverter(TokenConverter _tokenConverter) public onlyOwner returns (bool) {
+        emit SetTokenConverter(tokenConverter, _tokenConverter);
         tokenConverter = _tokenConverter;
         return true;
     }
@@ -205,6 +217,8 @@ contract MortgageHelper is Ownable {
         @return True if the payment was performed
     */
     function pay(address engine, uint256 loan, uint256 amount) public returns (bool) {
+        emit PaidLoan(engine, loan, amount);
+
         bytes32[4] memory loanParams = [
             bytes32(engine),
             bytes32(loan),
