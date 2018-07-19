@@ -35,10 +35,10 @@ contract ConverterRamp is Ownable {
     function pay(
         TokenConverter converter,
         Token fromToken,
-        bytes32[4] memory loanParams,
+        bytes32[4] loanParams,
         bytes oracleData,
-        uint256[3] memory convertRules
-    ) public payable returns (bool) {
+        uint256[3] convertRules
+    ) external payable returns (bool) {
         Token rcn = NanoLoanEngine(address(loanParams[I_ENGINE])).rcn();
 
         uint256 initialBalance = rcn.balanceOf(this);

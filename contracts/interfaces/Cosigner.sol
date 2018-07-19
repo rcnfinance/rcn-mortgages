@@ -45,5 +45,5 @@ contract Cosigner {
 
         @return true if the claim was done correctly.
     */
-    function claim(address engine, uint256 index, bytes oracleData) public returns (bool);
+    function claim(address engine, uint256 index, bytes oracleData) external returns (bool);
 }

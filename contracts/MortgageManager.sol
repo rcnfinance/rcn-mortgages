@@ -49,11 +49,11 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
     bytes32 public constant MANA_CURRENCY = 0x4d414e4100000000000000000000000000000000000000000000000000000000;
     uint256 public constant REQUIRED_ALLOWANCE = 1000000000 * 10**18;
 
-    function name() public view returns (string _name) {
+    function name() public pure returns (string _name) {
         _name = "Decentraland RCN Mortgage";
     }
 
-    function symbol() public view returns (string _symbol) {
+    function symbol() public pure returns (string _symbol) {
         _symbol = "LAND-RCN-Mortgage";
     }
 
@@ -70,7 +70,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
     Land public land;
     LandMarket public landMarket;
     
-    function MortgageManager(Token _rcn, Token _mana, Land _land, LandMarket _landMarket) public {
+    constructor(Token _rcn, Token _mana, Land _land, LandMarket _landMarket) public {
         setTokenType(mana, ERCLockable.TokenType.ERC20);
         setTokenType(rcn, ERCLockable.TokenType.ERC20);
         setTokenType(land, ERCLockable.TokenType.ERC721);
@@ -118,7 +118,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
 
         @return true If the operation was executed
     */
-    function setCreator(address creator, bool authorized) public onlyOwner returns (bool) {
+    function setCreator(address creator, bool authorized) external onlyOwner returns (bool) {
         emit SetCreator(creator, authorized);
         creators[creator] = authorized;
         return true;
@@ -154,7 +154,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         uint256 deposit,
         uint256 landId,
         TokenConverter tokenConverter
-    ) public returns (uint256 id) {
+    ) external returns (uint256 id) {
         return requestMortgageId(engine, engine.identifierToIndex(loanIdentifier), deposit, landId, tokenConverter);
     }
 
@@ -235,7 +235,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         @return true If the operation was executed
 
     */
-    function cancelMortgage(uint256 id) public returns (bool) {
+    function cancelMortgage(uint256 id) external returns (bool) {
         Mortgage storage mortgage = mortgages[id];
         
         // Only the owner of the mortgage and if the mortgage is pending
@@ -359,7 +359,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         
         @return true If the claim succeded
     */
-    function claim(address engine, uint256 loanId, bytes) public returns (bool) {
+    function claim(address engine, uint256 loanId, bytes) external returns (bool) {
         uint256 mortgageId = loanToLiability[engine][loanId];
         Mortgage storage mortgage = mortgages[mortgageId];
 
@@ -415,8 +415,11 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
     /**
         @dev An alternative version of the ERC721 callback, required by a bug in the parcels contract
     */
-    function onERC721Received(uint256 _tokenId, address _from, bytes data) public returns (bytes4) {
-        return onERC721Received(_from, _tokenId, data);
+    function onERC721Received(uint256 _tokenId, address _from, bytes data) external returns (bytes4) {
+        if (msg.sender == address(land) && flagReceiveLand == _tokenId) {
+            flagReceiveLand = 0;
+            return bytes4(keccak256("onERC721Received(address,uint256,bytes)"));
+        }
     }
 
     /**
@@ -424,7 +427,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
 
         @dev Only accepts tokens if flag is set to tokenId, resets the flag when called
     */
-    function onERC721Received(address _from, uint256 _tokenId, bytes data) public returns (bytes4) {
+    function onERC721Received(address _from, uint256 _tokenId, bytes data) external returns (bytes4) {
         if (msg.sender == address(land) && flagReceiveLand == _tokenId) {
             flagReceiveLand = 0;
             return bytes4(keccak256("onERC721Received(address,uint256,bytes)"));
@@ -434,7 +437,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
     /**
         @dev Reads data from a bytes array
     */
-    function getData(uint256 id) pure returns (bytes o) {
+    function getData(uint256 id) public pure returns (bytes o) {
         assembly {
             o := mload(0x40)
             mstore(0x40, add(o, and(add(add(32, 0x20), 0x1f), not(0x1f))))
@@ -451,7 +454,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
 
         @return true If data was updated
     */
-    function updateLandData(uint256 id, string data) public returns (bool) {
+    function updateLandData(uint256 id, string data) external returns (bool) {
         Mortgage memory mortgage = mortgages[id];
         require(_isAuthorized(msg.sender, id), "Sender not authorized");
         int256 x;

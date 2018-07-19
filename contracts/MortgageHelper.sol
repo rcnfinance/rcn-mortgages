@@ -23,7 +23,7 @@ contract LandMarket {
 }
 
 interface MortgageManager {
-    function requestMortgageId(Engine, uint256, uint256, uint256, TokenConverter) public returns (uint256);
+    function requestMortgageId(Engine, uint256, uint256, uint256, TokenConverter) external returns (uint256);
 }
 
 /**
@@ -55,7 +55,7 @@ contract MortgageHelper is Ownable {
     event SetRebuyThreshold(uint256 _prev, uint256 _new);
     event SetMarginSpend(uint256 _prev, uint256 _new);
 
-    function MortgageHelper(
+    constructor(
         MortgageManager _mortgageManager,
         NanoLoanEngine _nanoLoanEngine,
         Token _rcn,
@@ -114,7 +114,7 @@ contract MortgageHelper is Ownable {
         @param _converterRamp Address of the converter ramp contract
         @return true If the change was made
     */
-    function setConverterRamp(ConverterRamp _converterRamp) public onlyOwner returns (bool) {
+    function setConverterRamp(ConverterRamp _converterRamp) external onlyOwner returns (bool) {
         emit SetConverterRamp(converterRamp, _converterRamp);
         converterRamp = _converterRamp;
         return true;
@@ -126,7 +126,7 @@ contract MortgageHelper is Ownable {
         @param _rebuyThreshold New rebuyThreshold value
         @return true If the change was made
     */
-    function setRebuyThreshold(uint256 _rebuyThreshold) public onlyOwner returns (bool) {
+    function setRebuyThreshold(uint256 _rebuyThreshold) external onlyOwner returns (bool) {
         emit SetRebuyThreshold(rebuyThreshold, _rebuyThreshold);
         rebuyThreshold = _rebuyThreshold;
         return true;
@@ -138,7 +138,7 @@ contract MortgageHelper is Ownable {
         @param _marginSpend New marginSpend value
         @return true If the change was made
     */
-    function setMarginSpend(uint256 _marginSpend) public onlyOwner returns (bool) {
+    function setMarginSpend(uint256 _marginSpend) external onlyOwner returns (bool) {
         emit SetMarginSpend(marginSpend, _marginSpend);
         marginSpend = _marginSpend;
         return true;
@@ -150,7 +150,7 @@ contract MortgageHelper is Ownable {
         @param _tokenConverter Address of the tokenConverter contract
         @return true If the change was made
     */
-    function setTokenConverter(TokenConverter _tokenConverter) public onlyOwner returns (bool) {
+    function setTokenConverter(TokenConverter _tokenConverter) external onlyOwner returns (bool) {
         emit SetTokenConverter(tokenConverter, _tokenConverter);
         tokenConverter = _tokenConverter;
         return true;
@@ -176,13 +176,13 @@ contract MortgageHelper is Ownable {
         @return The id of the mortgage
     */
     function requestMortgage(
-        uint256[6] memory loanParams,
+        uint256[6] loanParams,
         string metadata,
         uint256 landId,
         uint8 v,
         bytes32 r,
         bytes32 s
-    ) public returns (uint256) {
+    ) external returns (uint256) {
         // Create a loan with the loanParams and metadata
         uint256 loanId = createLoan(loanParams, metadata);
 
@@ -216,7 +216,7 @@ contract MortgageHelper is Ownable {
 
         @return True if the payment was performed
     */
-    function pay(address engine, uint256 loan, uint256 amount) public returns (bool) {
+    function pay(address engine, uint256 loan, uint256 amount) external returns (bool) {
         emit PaidLoan(engine, loan, amount);
 
         bytes32[4] memory loanParams = [
