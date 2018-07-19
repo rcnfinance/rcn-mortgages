@@ -45,6 +45,7 @@ contract MortgageHelper is Ownable {
 
     uint256 public rebuyThreshold = 0.001 ether;
     uint256 public marginSpend = 100;
+    uint256 public maxSpend = 100;
 
     bytes32 public constant MANA_CURRENCY = 0x4d414e4100000000000000000000000000000000000000000000000000000000;
 
@@ -54,6 +55,8 @@ contract MortgageHelper is Ownable {
     event SetTokenConverter(address _prev, address _new);
     event SetRebuyThreshold(uint256 _prev, uint256 _new);
     event SetMarginSpend(uint256 _prev, uint256 _new);
+    event SetMaxSpend(uint256 _prev, uint256 _new);
+    event SetRequiredTotal(uint256 _prev, uint256 _new);
 
     constructor(
         MortgageManager _mortgageManager,
@@ -107,6 +110,31 @@ contract MortgageHelper is Ownable {
             metadata
         );
     }
+
+    /**
+        @notice Sets a max amount to expend when performing the payment
+        @dev Only owner
+        @param _maxSpend New maxSPend value
+        @return true If the change was made
+    */
+    function setMaxSpend(uint256 _maxSpend) external onlyOwner returns (bool) {
+        emit SetMaxSpend(maxSpend, _maxSpend);
+        maxSpend = _maxSpend;
+        return true;
+    }
+
+    /**
+        @notice Sets required total of the mortgage
+        @dev Only owner
+        @param _requiredTotal New requiredTotal value
+        @return true If the change was made
+    */
+    function setRequiredTotal(uint256 _requiredTotal) external onlyOwner returns (bool) {
+        emit SetRequiredTotal(requiredTotal, _requiredTotal);
+        requiredTotal = _requiredTotal;
+        return true;
+    }
+
 
     /**
         @notice Sets a new converter ramp to delegate the pay of the loan
@@ -228,7 +256,7 @@ contract MortgageHelper is Ownable {
 
         uint256[3] memory converterParams = [
             marginSpend,
-            amount.safeMult(uint256(100000).safeAdd(marginSpend)) / 100000,
+            amount.safeMult(uint256(100000).safeAdd(maxSpend)) / 100000,
             rebuyThreshold
         ];
 

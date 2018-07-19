@@ -278,11 +278,6 @@ contract ERC721Base {
         _;
     }
 
-    modifier isDestinataryDefined(address destinatary) {
-        require(destinatary != 0);
-        _;
-    }
-
     /**
      * @dev Alias of `safeTransferFrom(from, to, assetId, '')`
      *
@@ -341,7 +336,6 @@ contract ERC721Base {
         bytes userData,
         bool doCheck
     )
-        isDestinataryDefined(to)
         isCurrentOwner(from, assetId)
         internal
     {

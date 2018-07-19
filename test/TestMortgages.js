@@ -153,6 +153,8 @@ contract('NanoLoanEngine', function(accounts) {
 
         // Setup mortgage helper for payments
         await mortgageHelper.setMarginSpend(300)
+        await mortgageHelper.setMaxSpend(500)
+
     }
 
     async function setBancor() {
@@ -163,6 +165,8 @@ contract('NanoLoanEngine', function(accounts) {
 
         // Setup mortgage helper for payments
         await mortgageHelper.setMarginSpend(300)
+        await mortgageHelper.setMaxSpend(500)
+
     }
 
     function toInterestRate(r) {
