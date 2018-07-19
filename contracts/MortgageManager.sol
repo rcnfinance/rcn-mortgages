@@ -283,8 +283,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         
         // Convert the RCN into MANA using the designated
         // and save the received MANA
-        require(rcn.approve(mortgage.tokenConverter, loanAmount));
-        uint256 boughtMana = mortgage.tokenConverter.convert(rcn, mana, loanAmount, 1);
+        uint256 boughtMana = convertSafe(mortgage.tokenConverter, rcn, mana, loanAmount);
         delete mortgage.tokenConverter;
 
         // Load the new cost of the parcel, it may be changed
@@ -321,6 +320,28 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         emit StartedMortgage(uint256(readBytes32(data, 0)));
 
         return true;
+    }
+
+    /**
+        @notice Converts tokens using a token converter
+        @dev Does not trust the token converter, validates the return amount
+        @param converter Token converter used
+        @param from Tokens to sell
+        @param to Tokens to buy
+        @param amount Amount to sell
+        @return bought Bought amount
+    */
+    function convertSafe(
+        TokenConverter converter,
+        Token from,
+        Token to,
+        uint256 amount
+    ) internal returns (uint256 bought) {
+        require(from.approve(converter, amount));
+        uint256 prevBalance = to.balanceOf(this);
+        bought = converter.convert(from, to, amount, 1);
+        require(safeSubtract(to.balanceOf(this), prevBalance) >= bought);
+        require(from.approve(converter, 0));
     }
 
     /**
