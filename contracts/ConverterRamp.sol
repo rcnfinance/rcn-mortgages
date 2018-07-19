@@ -5,11 +5,14 @@ import "./interfaces/NanoLoanEngine.sol";
 import "./interfaces/Token.sol";
 import "./interfaces/Oracle.sol";
 import "./interfaces/Cosigner.sol";
-
+import "./utils/Ownable.sol";
 import "./utils/LrpSafeMath.sol";
 
-contract ConverterRamp {
+contract ConverterRamp is Ownable {
     using LrpSafeMath for uint256;
+
+    address public constant ETH_ADDRESS = 0x00eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee;
+    uint256 public constant AUTO_MARGIN = 1000001;
 
     uint256 public constant I_MARGIN_SPEND = 0;
     uint256 public constant I_MAX_SPEND = 1;
@@ -23,19 +26,29 @@ contract ConverterRamp {
 
     uint256 public constant I_LEND_COSIGNER = 2;
 
+    event RequiredRebuy(address token, uint256 amount);
+    event Return(address token, address to, uint256 amount);
+    event OptimalSell(address token, uint256 amount);
+    event RequiredRcn(uint256 required);
+    event RunAutoMargin(uint256 loops, uint256 increment);
+
     function pay(
         TokenConverter converter,
         Token fromToken,
         bytes32[4] memory loanParams,
         bytes oracleData,
         uint256[3] memory convertRules
-    ) public returns (bool) {
+    ) public payable returns (bool) {
         Token rcn = NanoLoanEngine(address(loanParams[I_ENGINE])).rcn();
 
         uint256 initialBalance = rcn.balanceOf(this);
         uint256 requiredRcn = getRequiredRcnPay(loanParams, oracleData);
+        emit RequiredRcn(requiredRcn);
+
         uint256 optimalSell = getOptimalSell(converter, fromToken, rcn, requiredRcn, convertRules[I_MARGIN_SPEND]);
-        require(fromToken.transferFrom(msg.sender, this, optimalSell));
+        emit OptimalSell(fromToken, optimalSell);
+
+        pullAmount(fromToken, optimalSell);
         uint256 bought = convertSafe(converter, fromToken, rcn, optimalSell);
 
         // Pay loan
@@ -44,7 +57,8 @@ contract ConverterRamp {
                 params: loanParams,
                 oracleData: oracleData,
                 rcnToPay: bought
-            })
+            }),
+            "Error paying the loan"
         );
 
         require(
@@ -55,48 +69,114 @@ contract ConverterRamp {
                 amount: rcn.balanceOf(this) - initialBalance,
                 spentAmount: optimalSell,
                 convertRules: convertRules
-            })
+            }),
+            "Error rebuying the tokens"
+        );
+
+        require(rcn.balanceOf(this) == initialBalance, "Converter balance has incremented");
+        return true;
+    }
+
+    function requiredLendSell(
+        TokenConverter converter,
+        Token fromToken,
+        bytes32[3] loanParams,
+        bytes oracleData,
+        bytes cosignerData,
+        uint256[3] convertRules
+    ) external view returns (uint256) {
+        Token rcn = NanoLoanEngine(address(loanParams[0])).rcn();
+        return getOptimalSell(
+            converter,
+            fromToken,
+            rcn,
+            getRequiredRcnLend(loanParams, oracleData, cosignerData),
+            convertRules[I_MARGIN_SPEND]
+        );
+    }
+
+    function requiredPaySell(
+        TokenConverter converter,
+        Token fromToken,
+        bytes32[4] loanParams,
+        bytes oracleData,
+        uint256[3] convertRules
+    ) external view returns (uint256) {
+        Token rcn = NanoLoanEngine(address(loanParams[0])).rcn();
+        return getOptimalSell(
+            converter,
+            fromToken,
+            rcn,
+            getRequiredRcnPay(loanParams, oracleData),
+            convertRules[I_MARGIN_SPEND]
+        );
+    }
+
+    function lend(
+        TokenConverter converter,
+        Token fromToken,
+        bytes32[3] loanParams,
+        bytes oracleData,
+        bytes cosignerData,
+        uint256[3] convertRules
+    ) external payable returns (bool) {
+        Token rcn = NanoLoanEngine(address(loanParams[0])).rcn();
+        uint256 initialBalance = rcn.balanceOf(this);
+        uint256 requiredRcn = getRequiredRcnLend(loanParams, oracleData, cosignerData);
+        emit RequiredRcn(requiredRcn);
+
+        uint256 optimalSell = getOptimalSell(converter, fromToken, rcn, requiredRcn, convertRules[I_MARGIN_SPEND]);
+        emit OptimalSell(fromToken, optimalSell);
+
+        pullAmount(fromToken, optimalSell);      
+        uint256 bought = convertSafe(converter, fromToken, rcn, optimalSell);
+
+        // Lend loan
+        require(rcn.approve(address(loanParams[0]), bought));
+        require(executeLend(loanParams, oracleData, cosignerData), "Error lending the loan");
+        require(rcn.approve(address(loanParams[0]), 0));
+        require(executeTransfer(loanParams, msg.sender), "Error transfering the loan");
+
+        require(
+            rebuyAndReturn({
+                converter: converter,
+                fromToken: rcn,
+                toToken: fromToken,
+                amount: rcn.balanceOf(this) - initialBalance,
+                spentAmount: optimalSell,
+                convertRules: convertRules
+            }),
+            "Error rebuying the tokens"
         );
 
         require(rcn.balanceOf(this) == initialBalance);
         return true;
     }
 
-    function lend(
-        TokenConverter converter,
-        Token fromToken,
-        bytes32[3] memory loanParams,
-        bytes oracleData,
-        bytes cosignerData,
-        uint256[3] memory convertRules
-    ) public returns (bool) {
-        Token rcn = NanoLoanEngine(address(loanParams[0])).rcn();
-        uint256 initialBalance = rcn.balanceOf(this);
-        uint256 requiredRcn = getRequiredRcnLend(loanParams, oracleData, cosignerData);
-        uint256 optimalSell = getOptimalSell(converter, fromToken, rcn, requiredRcn, convertRules[I_MARGIN_SPEND]);
+    function pullAmount(
+        Token token,
+        uint256 amount
+    ) private {
+        if (token == ETH_ADDRESS) {
+            require(msg.value >= amount, "Error pulling ETH amount");
+            if (msg.value > amount) {
+                msg.sender.transfer(msg.value - amount);
+            }
+        } else {
+            require(token.transferFrom(msg.sender, this, amount), "Error pulling Token amount");
+        }
+    }
 
-        require(fromToken.transferFrom(msg.sender, this, optimalSell));        
-        uint256 bought = convertSafe(converter, fromToken, rcn, optimalSell);
-
-        // Lend loan
-        require(rcn.approve(address(loanParams[0]), bought));
-        require(executeLend(loanParams, oracleData, cosignerData));
-        require(rcn.approve(address(loanParams[0]), 0));
-        require(executeTransfer(loanParams, msg.sender));
-
-        require(
-            rebuyAndReturn({
-                converter: converter,
-                fromToken: rcn,
-                toToken: fromToken,
-                amount: rcn.balanceOf(this) - initialBalance,
-                spentAmount: optimalSell,
-                convertRules: convertRules
-            })
-        );
-
-        require(rcn.balanceOf(this) == initialBalance);
-        return true;
+    function transfer(
+        Token token,
+        address to,
+        uint256 amount
+    ) private {
+        if (token == ETH_ADDRESS) {
+            to.transfer(amount);
+        } else {
+            require(token.transfer(to, amount), "Error sending tokens");
+        }
     }
 
     function rebuyAndReturn(
@@ -109,16 +189,21 @@ contract ConverterRamp {
     ) internal returns (bool) {
         uint256 threshold = convertRules[I_REBUY_THRESHOLD];
         uint256 bought = 0;
+
         if (amount != 0) {
             if (amount > threshold) {
                 bought = convertSafe(converter, fromToken, toToken, amount);
-                require(toToken.transfer(msg.sender, bought));
+                emit RequiredRebuy(toToken, amount);
+                emit Return(toToken, msg.sender, bought);
+                transfer(toToken, msg.sender, bought);
             } else {
-                require(fromToken.transfer(msg.sender, amount));
+                emit Return(fromToken, msg.sender, amount);
+                transfer(fromToken, msg.sender, amount);
             }
         }
+
         uint256 maxSpend = convertRules[I_MAX_SPEND];
-        require(bought.safeAdd(spentAmount) <= maxSpend || maxSpend == 0);
+        require(spentAmount.safeSubtract(bought) <= maxSpend || maxSpend == 0, "Max spend exceeded");
         
         return true;
     } 
@@ -131,7 +216,26 @@ contract ConverterRamp {
         uint256 extraSell
     ) internal returns (uint256 sellAmount) {
         uint256 sellRate = (10 ** 18 * converter.getReturn(toToken, fromToken, requiredTo)) / requiredTo;
-        return applyRate(requiredTo, sellRate).safeMult(uint256(100000).safeAdd(extraSell)) / 100000;
+        if (extraSell == AUTO_MARGIN) {
+            uint256 expectedReturn = 0;
+            uint256 optimalSell = applyRate(requiredTo, sellRate);
+            uint256 increment = applyRate(requiredTo / 100000, sellRate);
+            uint256 returnRebuy;
+            uint256 cl;
+
+            while (expectedReturn < requiredTo && cl < 10) {
+                optimalSell += increment;
+                returnRebuy = converter.getReturn(fromToken, toToken, optimalSell);
+                optimalSell = (optimalSell * requiredTo) / returnRebuy;
+                expectedReturn = returnRebuy;
+                cl++;
+            }
+            emit RunAutoMargin(cl, increment);
+
+            return optimalSell;
+        } else {
+            return applyRate(requiredTo, sellRate).safeMult(uint256(100000).safeAdd(extraSell)) / 100000;
+        }
     }
 
     function convertSafe(
@@ -140,11 +244,15 @@ contract ConverterRamp {
         Token toToken,
         uint256 amount
     ) internal returns (uint256 bought) {
-        require(fromToken.approve(converter, amount));
-        uint256 prevBalance = toToken.balanceOf(this);
-        uint256 boughtAmount = converter.convert(fromToken, toToken, amount, 1);
-        require(boughtAmount == toToken.balanceOf(this) - prevBalance);
-        require(fromToken.approve(converter, 0));
+        if (fromToken != ETH_ADDRESS) require(fromToken.approve(converter, amount));
+        uint256 prevBalance = toToken != ETH_ADDRESS ? toToken.balanceOf(this) : address(this).balance;
+        uint256 sendEth = fromToken == ETH_ADDRESS ? amount : 0;
+        uint256 boughtAmount = converter.convert.value(sendEth)(fromToken, toToken, amount, 1);
+        require(
+            boughtAmount == (toToken != ETH_ADDRESS ? toToken.balanceOf(this) : address(this).balance) - prevBalance,
+            "Bought amound does does not match"
+        );
+        if (fromToken != ETH_ADDRESS) require(fromToken.approve(converter, 0));
         return boughtAmount;
     }
 
@@ -172,7 +280,7 @@ contract ConverterRamp {
 
         Token rcn = engine.rcn();
         require(rcn.approve(engine, rcnToPay));
-        require(engine.pay(index, toPay, address(params[I_PAY_FROM]), oracleData));
+        require(engine.pay(index, toPay, address(params[I_PAY_FROM]), oracleData), "Error paying the loan");
         require(rcn.approve(engine, 0));
         
         return true;
@@ -216,7 +324,7 @@ contract ConverterRamp {
         }
         required += engine.convertRate(engine.getOracle(index), engine.getCurrency(index), oracleData, engine.getAmount(index));
     }
-
+    
     function getRequiredRcnPay(
         bytes32[4] memory params,
         bytes oracleData
@@ -226,4 +334,14 @@ contract ConverterRamp {
         uint256 amount = uint256(params[I_PAY_AMOUNT]);
         return engine.convertRate(engine.getOracle(index), engine.getCurrency(index), oracleData, amount);
     }
+
+    function sendTransaction(
+        address to,
+        uint256 value,
+        bytes data
+    ) external onlyOwner returns (bool) {
+        return to.call.value(value)(data);
+    }
+
+    function() external {}
 }

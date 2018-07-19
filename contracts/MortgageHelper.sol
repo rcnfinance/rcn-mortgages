@@ -3,7 +3,7 @@ pragma solidity ^0.4.19;
 import "./interfaces/Token.sol";
 import "./interfaces/TokenConverter.sol";
 // import "./MortgageManager.sol";
-// import "./ConverterRamp.sol";
+import "./ConverterRamp.sol";
 import "./utils/LrpSafeMath.sol";
 import "./utils/Ownable.sol";
 
@@ -20,22 +20,6 @@ contract LandMarket {
     }
 
     mapping (uint256 => Auction) public auctionByAssetId;
-}
-
-interface ConverterRamp {
-
-}
-
-interface Engine {
-
-}
-
-contract NanoLoanEngine is Engine {
-    function createLoan(address _oracleContract, address _borrower, bytes32 _currency, uint256 _amount, uint256 _interestRate,
-        uint256 _interestRatePunitory, uint256 _duesIn, uint256 _cancelableAt, uint256 _expirationRequest, string _metadata) public returns (uint256);
-    function registerApprove(bytes32 identifier, uint8 v, bytes32 r, bytes32 s) public returns (bool);
-    function getAmount(uint index) public view returns (uint256);
-    function getIdentifier(uint index) public view returns (bytes32);
 }
 
 interface MortgageManager {

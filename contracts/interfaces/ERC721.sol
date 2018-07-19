@@ -1,6 +1,7 @@
 pragma solidity ^0.4.19;
 
 contract ERC721 {
+    /*
    // ERC20 compatible functions
    function name() public view returns (string _name);
    function symbol() public view returns (string _symbol);
@@ -17,6 +18,7 @@ contract ERC721 {
    function transferFrom(address from, address to, uint256 index) public returns (bool);
    // Token metadata
    function tokenMetadata(uint256 _tokenId) public view returns (string info);
+   */
    // Events
    event Transfer(address indexed _from, address indexed _to, uint256 _tokenId);
    event Approval(address indexed _owner, address indexed _approved, uint256 _tokenId);
