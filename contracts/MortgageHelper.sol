@@ -202,7 +202,7 @@ contract MortgageHelper is Ownable {
         @param loan Loan id to pay
         @param amount Amount in MANA to pay
 
-        @returns True if the payment was performed
+        @return True if the payment was performed
     */
     function pay(address engine, uint256 loan, uint256 amount) public returns (bool) {
         bytes32[4] memory loanParams = [

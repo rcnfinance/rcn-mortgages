@@ -346,17 +346,20 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         // Unlock the Parcel token
         unlockERC721(land, mortgage.landId);
 
-        if (mortgage.owner == msg.sender) {
-            // Check that the loan is paid
-            require(mortgage.engine.getStatus(loanId) == Engine.Status.paid || mortgage.engine.getStatus(loanId) == Engine.Status.destroyed);
+        
+        if (mortgage.engine.getStatus(loanId) == Engine.Status.paid || mortgage.engine.getStatus(loanId) == Engine.Status.destroyed) {
+            // The mortgage is paid
+            require(mortgage.owner == msg.sender);
+
             mortgage.status = Status.Paid;
             // Transfer the parcel to the borrower
             land.safeTransferFrom(this, mortgage.owner, mortgage.landId);
             emit PaidMortgage(mortgageId);
             return true;
-        } else if (mortgage.engine.ownerOf(loanId) == msg.sender) {
-            // Check if the loan is defaulted
-            require(isDefaulted(mortgage.engine, loanId));
+        } else if (isDefaulted(mortgage.engine, loanId)) {
+            // The mortgage is defaulted
+            require(msg.sender == mortgage.engine.ownerOf(loanId));
+            
             mortgage.status = Status.Defaulted;
             // Transfer the parcel to the lender
             land.safeTransferFrom(this, msg.sender, mortgage.landId);
