@@ -316,7 +316,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         unlockERC20(mana, mortgage.deposit);
         
         // Cosign contract, 0 is the RCN required
-        require(mortgage.engine.cosign(index, 0), "Error performing cosign");
+        require(engine.cosign(index, 0), "Error performing cosign");
         
         // Save mortgage id registry
         mortgageByLandId[mortgage.landId] = uint256(readBytes32(data, 0));
