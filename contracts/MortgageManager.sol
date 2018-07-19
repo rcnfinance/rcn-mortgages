@@ -56,7 +56,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         _symbol = "LAND-RCN-Mortgage";
     }
 
-    event RequestedMortgage(uint256 _id, address _borrower, address _engine, uint256 _loanId, uint256 _landId, uint256 _deposit);
+    event RequestedMortgage(uint256 _id, address _borrower, address _engine, uint256 _loanId, uint256 _landId, uint256 _deposit, address _tokenConverter);
     event StartedMortgage(uint256 _id);
     event CanceledMortgage(uint256 _id);
     event PaidMortgage(uint256 _id);
@@ -220,7 +220,8 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
             _engine: engine,
             _loanId: loanId,
             _landId: landId,
-            _deposit: deposit
+            _deposit: deposit,
+            _tokenConverter: tokenConverter
         });
     }
 
