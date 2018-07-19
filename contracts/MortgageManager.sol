@@ -314,7 +314,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         mortgageByLandId[mortgage.landId] = uint256(readBytes32(data, 0));
 
         // Emit mortgage event
-        StartedMortgage(uint256(readBytes32(data, 0)));
+        emit StartedMortgage(uint256(readBytes32(data, 0)));
 
         return true;
     }

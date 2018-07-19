@@ -188,7 +188,7 @@ contract MortgageHelper is Ownable {
 
         // Create the mortgage request
         uint256 mortgageId = mortgageManager.requestMortgageId(Engine(nanoLoanEngine), loanId, requiredDeposit, landId, tokenConverter);
-        NewMortgage(msg.sender, loanId, landId, mortgageId);
+        emit NewMortgage(msg.sender, loanId, landId, mortgageId);
         
         return mortgageId;
     }
