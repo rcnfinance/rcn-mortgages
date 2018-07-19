@@ -58,8 +58,8 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
 
     event RequestedMortgage(uint256 _id, address _borrower, address _engine, uint256 _loanId, uint256 _landId, uint256 _deposit, address _tokenConverter);
     event StartedMortgage(uint256 _id);
-    event CanceledMortgage(uint256 _id);
-    event PaidMortgage(uint256 _id);
+    event CanceledMortgage(address _from, uint256 _id);
+    event PaidMortgage(address _from, uint256 _id);
     event DefaultedMortgage(uint256 _id);
     event UpdatedLandData(address _updater, uint256 _parcel, string _data);
     event SetCreator(address _creator, bool _status);
@@ -236,7 +236,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         Mortgage storage mortgage = mortgages[id];
         
         // Only the owner of the mortgage and if the mortgage is pending
-        require(mortgage.owner == msg.sender);
+        require(msg.sender == mortgage.owner);
         require(mortgage.status == Status.Pending);
         
         mortgage.status = Status.Canceled;
@@ -245,7 +245,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         require(mana.transfer(msg.sender, mortgage.deposit));
         unlockERC20(mana, mortgage.deposit);
 
-        emit CanceledMortgage(id);
+        emit CanceledMortgage(msg.sender, id);
         return true;
     }
 
@@ -363,25 +363,17 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         require(mortgage.status == Status.Ongoing);
         require(mortgage.loanId == loanId);
         
-        // ERC721 Delete asset
-        _destroy(mortgageId);
-
-        // Delete mortgage id registry
-        delete mortgageByLandId[mortgage.landId];
-
         // Unlock the Parcel token
         unlockERC721(land, mortgage.landId);
 
-        
         if (mortgage.engine.getStatus(loanId) == Engine.Status.paid || mortgage.engine.getStatus(loanId) == Engine.Status.destroyed) {
             // The mortgage is paid
-            require(mortgage.owner == msg.sender);
+            require(_isAuthorized(msg.sender, mortgageId));
 
             mortgage.status = Status.Paid;
             // Transfer the parcel to the borrower
-            land.safeTransferFrom(this, mortgage.owner, mortgage.landId);
-            emit PaidMortgage(mortgageId);
-            return true;
+            land.safeTransferFrom(this, msg.sender, mortgage.landId);
+            emit PaidMortgage(msg.sender, mortgageId);
         } else if (isDefaulted(mortgage.engine, loanId)) {
             // The mortgage is defaulted
             require(msg.sender == mortgage.engine.ownerOf(loanId));
@@ -390,10 +382,17 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
             // Transfer the parcel to the lender
             land.safeTransferFrom(this, msg.sender, mortgage.landId);
             emit DefaultedMortgage(mortgageId);
-            return true;
         } else {
             revert();
         }
+
+        // ERC721 Delete asset
+        _destroy(mortgageId);
+
+        // Delete mortgage id registry
+        delete mortgageByLandId[mortgage.landId];
+
+        return true;
     }
 
     /**
@@ -443,14 +442,14 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
     /**
         @notice Enables the owner of a parcel to update the data field
 
-        @param id Id of the parcel
+        @param id Id of the mortgage
         @param data New data
 
         @return true If data was updated
     */
     function updateLandData(uint256 id, string data) public returns (bool) {
         Mortgage memory mortgage = mortgages[id];
-        require(msg.sender == mortgage.owner);
+        require(_isAuthorized(msg.sender, id));
         int256 x;
         int256 y;
         (x, y) = land.decodeTokenId(mortgage.landId);
