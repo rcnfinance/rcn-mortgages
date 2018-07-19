@@ -1,10 +1,10 @@
-pragma solidity ^0.4.19;
+pragma solidity ^0.4.24;
 
 contract Ownable {
     address public owner;
 
     modifier onlyOwner() {
-        require(msg.sender == owner);
+        require(msg.sender == owner, "Sender not owner");
         _;
     }
 

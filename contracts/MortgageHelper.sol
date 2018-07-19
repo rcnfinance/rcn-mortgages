@@ -187,7 +187,7 @@ contract MortgageHelper is Ownable {
         uint256 loanId = createLoan(loanParams, metadata);
 
         // Approve the created loan with the provided signature
-        require(nanoLoanEngine.registerApprove(nanoLoanEngine.getIdentifier(loanId), v, r, s));
+        require(nanoLoanEngine.registerApprove(nanoLoanEngine.getIdentifier(loanId), v, r, s), "Signature not valid");
 
         // Calculate the requested amount for the mortgage deposit
         uint256 landCost;
@@ -195,7 +195,7 @@ contract MortgageHelper is Ownable {
         uint256 requiredDeposit = ((landCost * requiredTotal) / 100) - nanoLoanEngine.getAmount(loanId);
         
         // Pull the required deposit amount
-        require(mana.transferFrom(msg.sender, this, requiredDeposit));
+        require(mana.transferFrom(msg.sender, this, requiredDeposit), "Error pulling MANA");
         require(mana.approve(mortgageManager, requiredDeposit));
 
         // Create the mortgage request
@@ -240,6 +240,6 @@ contract MortgageHelper is Ownable {
             0x140,
             converterParams,
             0x0
-        ));
+        ), "Error delegate pay call");
     }
 }

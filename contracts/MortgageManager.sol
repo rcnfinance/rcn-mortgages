@@ -30,6 +30,7 @@ contract Land is ERC721 {
     function updateLandData(int x, int y, string data) public;
     function decodeTokenId(uint value) view public returns (int, int);
     function safeTransferFrom(address from, address to, uint256 assetId) public;
+    function ownerOf(uint256 landID) public view returns (address);
 }
 
 /**
@@ -178,14 +179,16 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         TokenConverter tokenConverter
     ) public returns (uint256 id) {
         // Validate the associated loan
-        require(engine.getCurrency(loanId) == MANA_CURRENCY);
+        require(engine.getCurrency(loanId) == MANA_CURRENCY, "Loan currency is not MANA");
         address borrower = engine.getBorrower(loanId);
-        require(engine.getStatus(loanId) == Engine.Status.initial);
-        require(msg.sender == engine.getBorrower(loanId) || (msg.sender == engine.getCreator(loanId) && creators[msg.sender]));
-        require(engine.isApproved(loanId));
-        require(rcn.allowance(borrower, this) >= REQUIRED_ALLOWANCE);
-        require(tokenConverter != address(0));
-        require(loanToLiability[engine][loanId] == 0);
+        require(engine.getStatus(loanId) == Engine.Status.initial, "Loan status is not inital");
+        require(msg.sender == engine.getBorrower(loanId) ||
+               (msg.sender == engine.getCreator(loanId) && creators[msg.sender]),
+            "Creator should be borrower or authorized");
+        require(engine.isApproved(loanId), "Loan is not approved");
+        require(rcn.allowance(borrower, this) >= REQUIRED_ALLOWANCE, "Manager cannot handle borrower's funds");
+        require(tokenConverter != address(0), "Token converter not defined");
+        require(loanToLiability[engine][loanId] == 0, "Liability for loan already exists");
 
         // Get the current parcel cost
         uint256 landCost;
@@ -194,10 +197,10 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
 
         // We expect a 10% extra for convertion losses
         // the remaining will be sent to the borrower
-        require((loanAmount + deposit) >= ((landCost / 10) * 11));
+        require((loanAmount + deposit) >= ((landCost / 10) * 11), "Not enought total amount");
 
         // Pull the deposit and lock the tokens
-        require(mana.transferFrom(msg.sender, this, deposit));
+        require(mana.transferFrom(msg.sender, this, deposit), "Error pulling mana");
         lockERC20(mana, deposit);
         
         // Create the liability
@@ -236,13 +239,13 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         Mortgage storage mortgage = mortgages[id];
         
         // Only the owner of the mortgage and if the mortgage is pending
-        require(msg.sender == mortgage.owner);
-        require(mortgage.status == Status.Pending);
+        require(msg.sender == mortgage.owner, "Only the owner can cancel the mortgage");
+        require(mortgage.status == Status.Pending, "The mortgage is not pending");
         
         mortgage.status = Status.Canceled;
 
         // Transfer the deposit back to the borrower
-        require(mana.transfer(msg.sender, mortgage.deposit));
+        require(mana.transfer(msg.sender, mortgage.deposit), "Error returning MANA");
         unlockERC20(mana, mortgage.deposit);
 
         emit CanceledMortgage(msg.sender, id);
@@ -268,9 +271,9 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         
         // Validate that the loan matches with the mortgage
         // and the mortgage is still pending
-        require(mortgage.engine == engine);
-        require(mortgage.loanId == index);
-        require(mortgage.status == Status.Pending);
+        require(mortgage.engine == engine, "Engine does not match");
+        require(mortgage.loanId == index, "Loan id does not match");
+        require(mortgage.status == Status.Pending, "Mortgage is not pending");
 
         // Update the status of the mortgage to avoid reentrancy
         mortgage.status = Status.Ongoing;
@@ -280,7 +283,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
 
         // Transfer the amount of the loan in RCN to this contract
         uint256 loanAmount = convertRate(engine.getOracle(index), engine.getCurrency(index), oracleData, engine.getAmount(index));
-        require(rcn.transferFrom(mortgage.owner, this, loanAmount));
+        require(rcn.transferFrom(mortgage.owner, this, loanAmount), "Error pulling RCN from borrower");
         
         // Convert the RCN into MANA using the designated
         // and save the received MANA
@@ -290,14 +293,15 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         // Load the new cost of the parcel, it may be changed
         uint256 currentLandCost;
         (, , currentLandCost, ) = landMarket.auctionByAssetId(mortgage.landId);
-        require(currentLandCost <= mortgage.landCost);
+        require(currentLandCost <= mortgage.landCost, "Parcel is more expensive than expected");
         
         // Buy the land and lock it into the mortgage contract
         require(mana.approve(landMarket, currentLandCost));
         flagReceiveLand = mortgage.landId;
         landMarket.executeOrder(mortgage.landId, currentLandCost);
         require(mana.approve(landMarket, 0));
-        require(flagReceiveLand == 0);
+        require(flagReceiveLand == 0, "ERC721 callback not called");
+        require(land.ownerOf(mortgage.landId) == address(this), "Error buying parcel");
         lockERC721(land, mortgage.landId);
 
         // Calculate the remaining amount to send to the borrower and 
@@ -306,13 +310,13 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         uint256 rest = safeSubtract(totalMana, currentLandCost);
 
         // Return rest of MANA to the owner
-        require(mana.transfer(mortgage.owner, rest));
+        require(mana.transfer(mortgage.owner, rest), "Error returning MANA");
 
         // Unlock MANA from deposit
         unlockERC20(mana, mortgage.deposit);
         
         // Cosign contract, 0 is the RCN required
-        require(mortgage.engine.cosign(index, 0));
+        require(mortgage.engine.cosign(index, 0), "Error performing cosign");
         
         // Save mortgage id registry
         mortgageByLandId[mortgage.landId] = uint256(readBytes32(data, 0));
@@ -341,7 +345,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         require(from.approve(converter, amount));
         uint256 prevBalance = to.balanceOf(this);
         bought = converter.convert(from, to, amount, 1);
-        require(safeSubtract(to.balanceOf(this), prevBalance) >= bought);
+        require(safeSubtract(to.balanceOf(this), prevBalance) >= bought, "Bought amount incorrect");
         require(from.approve(converter, 0));
     }
 
@@ -360,15 +364,15 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         Mortgage storage mortgage = mortgages[mortgageId];
 
         // Validate that the mortgage wasn't claimed
-        require(mortgage.status == Status.Ongoing);
-        require(mortgage.loanId == loanId);
+        require(mortgage.status == Status.Ongoing, "Mortgage not ongoing");
+        require(mortgage.loanId == loanId, "Mortgage don't match loan id");
         
         // Unlock the Parcel token
         unlockERC721(land, mortgage.landId);
 
         if (mortgage.engine.getStatus(loanId) == Engine.Status.paid || mortgage.engine.getStatus(loanId) == Engine.Status.destroyed) {
             // The mortgage is paid
-            require(_isAuthorized(msg.sender, mortgageId));
+            require(_isAuthorized(msg.sender, mortgageId), "Sender not authorized");
 
             mortgage.status = Status.Paid;
             // Transfer the parcel to the borrower
@@ -376,14 +380,14 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
             emit PaidMortgage(msg.sender, mortgageId);
         } else if (isDefaulted(mortgage.engine, loanId)) {
             // The mortgage is defaulted
-            require(msg.sender == mortgage.engine.ownerOf(loanId));
+            require(msg.sender == mortgage.engine.ownerOf(loanId), "Sender not lender");
             
             mortgage.status = Status.Defaulted;
             // Transfer the parcel to the lender
             land.safeTransferFrom(this, msg.sender, mortgage.landId);
             emit DefaultedMortgage(mortgageId);
         } else {
-            revert();
+            revert("Mortgage not defaulted/paid");
         }
 
         // ERC721 Delete asset
@@ -449,7 +453,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
     */
     function updateLandData(uint256 id, string data) public returns (bool) {
         Mortgage memory mortgage = mortgages[id];
-        require(_isAuthorized(msg.sender, id));
+        require(_isAuthorized(msg.sender, id), "Sender not authorized");
         int256 x;
         int256 y;
         (x, y) = land.decodeTokenId(mortgage.landId);
@@ -470,7 +474,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
             
             (rate, decimals) = oracle.getRate(currency, data);
 
-            require(decimals <= RCN_DECIMALS);
+            require(decimals <= RCN_DECIMALS, "Decimals exceeds max decimals");
             return (safeMult(safeMult(amount, rate), (10**(RCN_DECIMALS-decimals)))) / PRECISION;
         }
     }
