@@ -1,11 +1,11 @@
-pragma solidity ^0.4.11;
-import '../BancorFormula.sol';
+pragma solidity ^0.4.23;
+import '../converter/BancorFormula.sol';
 
 /*
     BancorFormula test helper that exposes some BancorFormula functions
 */
 contract TestBancorFormula is BancorFormula {
-    function TestBancorFormula() public {
+    constructor() public {
     }
 
     function powerTest(uint256 _baseN, uint256 _baseD, uint32 _expN, uint32 _expD) external view returns (uint256, uint8) {

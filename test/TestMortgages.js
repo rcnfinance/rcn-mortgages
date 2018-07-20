@@ -2,38 +2,47 @@ const TestToken = artifacts.require("./utils/test/TestToken.sol");
 const DecentralandRegistry = artifacts.require("./utils/test/decentraland/LANDRegistry.sol");
 const DecentralandProxy = artifacts.require("./utils/test/decentraland/LANDProxy.sol");
 const NanoLoanEngine = artifacts.require("./utils/test/ripiocredit/NanoLoanEngine.sol");
-const KyberMock = artifacts.require("./KyberMock.sol");
-const KyberOracle = artifacts.require("./KyberOracle.sol");
-const KyberChanger = artifacts.require("./changers/KyberTokenExchanger.sol")
+// const KyberChanger = artifacts.require("./changers/KyberTokenExchanger.sol")
 const DecentralandMarket = artifacts.require("./utils/test/decentraland/Marketplace.sol");
 const MortgageManager = artifacts.require("./MortgageManager.sol");
 const MortgageHelper = artifacts.require("./MortgageHelper.sol");
 
-const BancorConverter = artifacts.require('./utils/test/bancor/BancorConverter.sol');
-const SmartToken = artifacts.require('./utils/test/bancor/SmartToken.sol');
-const BancorFormula = artifacts.require('./utils/test/bancor/BancorFormula.sol');
-const BancorGasPriceLimit = artifacts.require('./utils/test/bancor/BancorGasPriceLimit.sol');
-const BancorQuickConverter = artifacts.require('./utils/test/bancor/BancorQuickConverter.sol');
-const BancorConverterExtensions = artifacts.require('./utils/test/bancor/BancorConverterExtensions.sol');
-const BancorOracle = artifacts.require('./BancorOracle.sol');
+// Kyber network
+const KyberMock = artifacts.require("./KyberMock.sol");
+const KyberOracle = artifacts.require("./KyberOracle.sol");
+const KyberProxy = artifacts.require("./KyberProxy.sol");
+
+// Bancor network
+const BancorNetwork = artifacts.require      ('./test/bancor/BancorNetwork.sol');
+const ContractIds = artifacts.require        ('./test/bancor/ContractIds.sol');
+const BancorConverter = artifacts.require    ('./test/bancor/converter/BancorConverter.sol');
+const BancorFormula = artifacts.require      ('./test/bancor/converter/BancorFormula.sol');
+const BancorGasPriceLimit = artifacts.require('./test/bancor/converter/BancorGasPriceLimit.sol');
+const SmartToken = artifacts.require         ('./test/bancor/token/SmartToken.sol');
+const TestERC20Token = artifacts.require     ('./test/bancor/token/TestERC20Token.sol');
+const EtherToken = artifacts.require         ('./test/bancor/token/EtherToken.sol');
+const ContractRegistry = artifacts.require   ('./test/bancor/utility/ContractRegistry.sol');
+const ContractFeatures = artifacts.require   ('./test/bancor/utility/ContractFeatures.sol');
+
+// Bancor proxy and oracle
+const BancorProxy = artifacts.require("./test/rcn/proxies/BancorProxy.sol")
+const BancorOracle = artifacts.require("./test/rcn/BancorOracle.sol")
+
 const ConverterRamp = artifacts.require('./ConverterRamp.sol');
 
+function toBytes32(source) {
+    const rl = 64;
+    source = source.toString().replace("0x", "");
+    if (source.length < rl) {
+        const diff = 64 - source.length;
+        source = "0".repeat(diff) + source;
+    }
+    return "0x" + source;
+}
+
+
 contract('NanoLoanEngine', function(accounts) {
-    let manaCurrency;
-    let land;
-    let rcnEngine;
-    let rcn;
-    let mana;
-    let kyberOracle;
-    let kyber;
-    let kyberChanger;
-    let landMarket;
-    let mortgageManager;
-    let mortgageHelper;
-    let bancorConverter;
-    let bancorOracle;
-    let smartToken;
-    let converterRamp;
+    const manaCurrency = "0x4d414e4100000000000000000000000000000000000000000000000000000000";
 
     async function assertThrow(promise) {
         try {
@@ -70,59 +79,94 @@ contract('NanoLoanEngine', function(accounts) {
         mortgageManager = await MortgageManager.new(rcn.address, mana.address, land.address, landMarket.address);
         // Deploy ramp
         converterRamp = await ConverterRamp.new();
-    })
 
-    async function setKyber() {
-        // Deploy Kyber network and fund it
-        kyber = await KyberMock.new(mana.address, rcn.address);
-        await mana.createTokens(kyber.address, 1000000*10**18);
-        await rcn.createTokens(kyber.address, 1000000*10**18);
-        await kyber.setRateRM(1262385660474240000);
-        await kyber.setRateMR(792150949832820000);
-        // Deploy kyber oracle
-        kyberOracle = await KyberOracle.new();
-        await kyberOracle.addCurrency("MANA");
-        manaCurrency = await kyberOracle.currencies(0); 
-        await kyberOracle.changeToken("MANA", mana.address);
-        await kyberOracle.changeDecimals("MANA", 18);
-        await kyberOracle.setRcn(rcn.address);
-        await kyberOracle.setKyber(kyber.address);
-        // Deploy kyber changer
-        kyberChanger = await KyberChanger.new(kyber.address);
-        // Deploy mortgage creator
-        mortgageHelper = await MortgageHelper.new(mortgageManager.address, rcnEngine.address, rcn.address, mana.address, landMarket.address, kyberOracle.address, kyberChanger.address, converterRamp.address)
-        // Whitelist the mortgage creator
-        await mortgageManager.setCreator(mortgageHelper.address, true);
-    }
-
-    async function setBancor() {
+        // Deploy bancor
         const weight10Percent = 100000;
         const gasPrice = 10**32;
 
-        // Deploy Bancor
-        let formula = await BancorFormula.new();
+        signer = accounts[9]
+
+        let contractRegistry = await ContractRegistry.new();
+        let contractIds = await ContractIds.new();
+
+        let contractFeatures = await ContractFeatures.new();
+        let contractFeaturesId = await contractIds.CONTRACT_FEATURES.call();
+        await contractRegistry.registerAddress(contractFeaturesId, contractFeatures.address);
+
         let gasPriceLimit = await BancorGasPriceLimit.new(gasPrice);
-        let quickConverter = await BancorQuickConverter.new();
-        await quickConverter.setGasPriceLimit(gasPriceLimit.address);
-        await quickConverter.setSignerAddress(accounts[3]);
-        let converterExtensions = await BancorConverterExtensions.new(formula.address, gasPriceLimit.address, quickConverter.address);
+        let gasPriceLimitId = await contractIds.BANCOR_GAS_PRICE_LIMIT.call();
+        await contractRegistry.registerAddress(gasPriceLimitId, gasPriceLimit.address);
+
+        let formula = await BancorFormula.new();
+        let formulaId = await contractIds.BANCOR_FORMULA.call();
+        await contractRegistry.registerAddress(formulaId, formula.address);
+
+        let bancorNetwork = await BancorNetwork.new(contractRegistry.address);
+        let bancorNetworkId = await contractIds.BANCOR_NETWORK.call();
+        await contractRegistry.registerAddress(bancorNetworkId, bancorNetwork.address);
+        await bancorNetwork.setSignerAddress(signer);
+        
+        // converter RCN-MANA
         smartToken = await SmartToken.new('RCN MANA Token', 'RCNMANA', 18);
-        await smartToken.issue(accounts[0], 6500000 * 10 **18);
-        converter = await BancorConverter.new(smartToken.address, converterExtensions.address, 0, rcn.address, 250000)
+        await smartToken.issue(accounts[9], 6500000 * 10 **18);
+        converter = await BancorConverter.new(smartToken.address, contractRegistry.address, 0, rcn.address, 250000);
         await converter.addConnector(mana.address, 250000, false);
+        await smartToken.transferOwnership(converter.address);
+        await converter.acceptTokenOwnership();
         await rcn.createTokens(converter.address, 2500000 * 10 **18)
         await mana.createTokens(converter.address, 6500000 * 10 **18)
-        await smartToken.transferOwnership(converter.address)
-        await converter.acceptTokenOwnership()
-        bancorConverter = converter
+
+        // Deploy bancor proxy
+        const bancorProxy = await BancorProxy.new(0x0);
+        await bancorProxy.setConverter(rcn.address, mana.address, converter.address);
+        bancorConverter = bancorProxy
+
         // Deploy bancor oracle
         bancorOracle = await BancorOracle.new()
         await bancorOracle.setRcn(rcn.address)
         await bancorOracle.addCurrencyConverter("MANA", mana.address, converter.address)
+
+        // Deploy kyber network
+        kyberNetwork = await KyberMock.new(mana.address, rcn.address)
+        await mana.createTokens(kyberNetwork.address, 1000000*10**18);
+        await rcn.createTokens(kyberNetwork.address, 1000000*10**18);
+        await kyberNetwork.setRateRM(1262385660474240000);
+        await kyberNetwork.setRateMR(792150949832820000);
+        
+        // Deploy kyber proxy
+        kyberProxy = await KyberProxy.new(kyberNetwork.address)
+
+        // Deploy kyber oracle
+        kyberOracle = await KyberOracle.new()
+        await kyberOracle.setRcn(rcn.address)
+        await kyberOracle.setKyber(kyberNetwork.address)
+        await kyberOracle.addCurrencyLink("MANA", mana.address, 18)
+
+        assert.equal(await kyberOracle.tickerToToken(manaCurrency), mana.address)
+    })
+
+    async function setKyber() {
         // Deploy mortgage creator
-        mortgageHelper = await MortgageHelper.new(mortgageManager.address, rcnEngine.address, rcn.address, mana.address, landMarket.address, bancorOracle.address, converter.address, converterRamp.address)
+        mortgageHelper = await MortgageHelper.new(mortgageManager.address, rcnEngine.address, rcn.address, mana.address, landMarket.address, kyberOracle.address, kyberProxy.address, converterRamp.address)
         // Whitelist the mortgage creator
         await mortgageManager.setCreator(mortgageHelper.address, true);
+
+        // Setup mortgage helper for payments
+        await mortgageHelper.setMarginSpend(300)
+        await mortgageHelper.setMaxSpend(500)
+
+    }
+
+    async function setBancor() {
+        // Deploy mortgage creator
+        mortgageHelper = await MortgageHelper.new(mortgageManager.address, rcnEngine.address, rcn.address, mana.address, landMarket.address, bancorOracle.address, bancorConverter.address, converterRamp.address)
+        // Whitelist the mortgage creator
+        await mortgageManager.setCreator(mortgageHelper.address, true);
+
+        // Setup mortgage helper for payments
+        await mortgageHelper.setMarginSpend(300)
+        await mortgageHelper.setMaxSpend(500)
+
     }
 
     function toInterestRate(r) {
@@ -174,7 +218,7 @@ contract('NanoLoanEngine', function(accounts) {
             loanIdentifier, // Loan id already created in RCN, it should be denominated in MANA
             30 * 10 ** 18, // Send the deposit (?) from the borrower, it should be remaining needed to buy the land + 10%
             landId, // Land id to buy, it has to be on sell on the Decentraland market
-            kyberChanger.address
+            kyberProxy.address
         )
 
         // Get the mortgage ID
@@ -375,8 +419,6 @@ contract('NanoLoanEngine', function(accounts) {
     it("Should request a mortgage", createMortgage)
 
     it("It should cancel a mortgage", async() => {
-        await setKyber();
-
         // Do all the process to create a mortgage
         // loan ID is 1 and mortgage ID is 0
         await createMortgage()
@@ -403,9 +445,6 @@ contract('NanoLoanEngine', function(accounts) {
 
         // Authorize mortgage manager
         await rcn.approve(mortgageManager.address, 10**32, {from:accounts[2]})
-        
-        console.log("Test log")
-        console.log(converter.address);
 
         // Mint MANA and Request mortgage
         await mana.createTokens(accounts[2], 40*10**18);
@@ -476,9 +515,6 @@ contract('NanoLoanEngine', function(accounts) {
         // Authorize mortgage manager
         await rcn.approve(mortgageManager.address, 10**32, {from:accounts[2]})
         
-        console.log("Test log")
-        console.log(converter.address);
-
         // Mint MANA and Request mortgage
         await mana.createTokens(accounts[2], 40*10**18);
         await mana.approve(mortgageManager.address, 40*10**18, {from:accounts[2]})
@@ -489,7 +525,6 @@ contract('NanoLoanEngine', function(accounts) {
         await rcn.createTokens(accounts[3], 10**32);
         await rcn.approve(rcnEngine.address, 10**32, {from:accounts[3]});
         await rcn.approve(bancorConverter.address, 1 * 10**18, {from:accounts[3]});
-        // await bancorConverter.change(rcn.address, mana.address, 100, 1, {from:accounts[3]});
 
         await rcnEngine.lend(loanId, [], mortgageManager.address, cosignerData, {from:accounts[3]});
 
@@ -518,10 +553,10 @@ contract('NanoLoanEngine', function(accounts) {
 
         // Perform a partial payment
         await mana.createTokens(accounts[2], 101*10**18)
-        await mana.approve(mortgageHelper.address, 40*10**45, {from:accounts[2]})
-        await mortgageHelper.pay(bancorConverter.address, rcnEngine.address, loanId, 101*10**18, {from:accounts[2]})
-
-        assert.isAtLeast(await rcnEngine.getPaid(loanId), 101 * 10 ** 18);
+        await mana.approve(mortgageHelper.address, 101*10**18, {from:accounts[2]})
+        await mortgageHelper.pay(rcnEngine.address, loanId, 100*10**18, {from:accounts[2]})
+        
+        assert.isAtLeast(parseInt(await rcnEngine.getPaid(loanId)), 100 * 10 ** 18);
     })
 
     it("Test mortgage creation and payment", async() => {
@@ -543,13 +578,14 @@ contract('NanoLoanEngine', function(accounts) {
         // Mint MANA and Request mortgage
         await mana.createTokens(accounts[2], 40*10**18);
         await mana.approve(mortgageManager.address, 40*10**18, {from:accounts[2]})
-        await mortgageManager.requestMortgageId(rcnEngine.address, loanId, 40*10**18, landId, kyberChanger.address, {from:accounts[2]});
+        await mortgageManager.requestMortgageId(rcnEngine.address, loanId, 40*10**18, landId, kyberProxy.address, {from:accounts[2]});
         let cosignerData = await mortgageManager.getData(1);
-
+ 
         // Lend
-        await rcn.createTokens(accounts[3], 300*10**18);
-        await rcn.approve(rcnEngine.address, 10**32, {from:accounts[3]});
+        await rcn.createTokens(accounts[3], 151*10**18);
+        await rcn.approve(rcnEngine.address, 151 * 10**18, {from:accounts[3]});
         await rcnEngine.lend(loanId, [], mortgageManager.address, cosignerData, {from:accounts[3]});
+        // await rcnEngine.lend(loanId, [], 0x0, [], {from:accounts[3]});
 
         // Check that the mortgage started
         assert.equal(await land.ownerOf(landId), mortgageManager.address);
@@ -585,7 +621,6 @@ contract('NanoLoanEngine', function(accounts) {
         assert.equal(await land.ownerOf(landId), accounts[2])
         assert.equal(mortgage[6].toNumber(), 3, "Status should be Paid")
 
-        console.log(converterRamp.address);
         // Also test the ERC-721
         assert.equal(await mortgageManager.balanceOf(accounts[2]), 0)
         assert.equal(await mortgageManager.totalSupply(), 0)
