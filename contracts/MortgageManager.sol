@@ -181,8 +181,9 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         // Validate the associated loan
         require(engine.getCurrency(loanId) == MANA_CURRENCY, "Loan currency is not MANA");
         address borrower = engine.getBorrower(loanId);
+
         require(engine.getStatus(loanId) == Engine.Status.initial, "Loan status is not inital");
-        require(msg.sender == engine.getBorrower(loanId) ||
+        require(msg.sender == borrower ||
                (msg.sender == engine.getCreator(loanId) && creators[msg.sender]),
             "Creator should be borrower or authorized");
         require(engine.isApproved(loanId), "Loan is not approved");
