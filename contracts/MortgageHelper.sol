@@ -214,20 +214,26 @@ contract MortgageHelper is Ownable {
         // Create a loan with the loanParams and metadata
         uint256 loanId = createLoan(loanParams, metadata);
 
+        // Load NanoLoanEngine address
+        NanoLoanEngine _nanoLoanEngine = nanoLoanEngine;
+
         // Approve the created loan with the provided signature
-        require(nanoLoanEngine.registerApprove(nanoLoanEngine.getIdentifier(loanId), v, r, s), "Signature not valid");
+        require(_nanoLoanEngine.registerApprove(_nanoLoanEngine.getIdentifier(loanId), v, r, s), "Signature not valid");
 
         // Calculate the requested amount for the mortgage deposit
         uint256 landCost;
         (, , landCost, ) = landMarket.auctionByAssetId(landId);
-        uint256 requiredDeposit = ((landCost * requiredTotal) / 100) - nanoLoanEngine.getAmount(loanId);
+        uint256 requiredDeposit = ((landCost * requiredTotal) / 100) - _nanoLoanEngine.getAmount(loanId);
         
         // Pull the required deposit amount
-        require(mana.transferFrom(msg.sender, this, requiredDeposit), "Error pulling MANA");
-        require(mana.approve(mortgageManager, requiredDeposit));
+        Token _mana = mana;
+        _tokenTransferFrom(_mana, msg.sender, this, requiredDeposit);
+        require(_mana.approve(mortgageManager, requiredDeposit), "Error approve MANA transfer");
 
         // Create the mortgage request
-        uint256 mortgageId = mortgageManager.requestMortgageId(Engine(nanoLoanEngine), loanId, requiredDeposit, landId, tokenConverter);
+        uint256 mortgageId = mortgageManager.requestMortgageId(Engine(_nanoLoanEngine), loanId, requiredDeposit, landId, tokenConverter);
+        require(_mana.approve(mortgageManager, 0), "Error remove approve MANA transfer");
+
         emit NewMortgage(msg.sender, loanId, landId, mortgageId);
         
         return mortgageId;
@@ -269,5 +275,11 @@ contract MortgageHelper is Ownable {
             converterParams,
             0x0
         ), "Error delegate pay call");
+    }
+
+    function _tokenTransferFrom(Token token, address from, address to, uint256 amount) internal {
+        require(token.balanceOf(from) >= amount, "From balance is not enough");
+        require(token.allowance(from, address(this)) >= amount, "Allowance is not enough");
+        require(token.transferFrom(from, to, amount), "Transfer failed");
     }
 }
