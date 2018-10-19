@@ -4,7 +4,7 @@ import "./interfaces/Token.sol";
 import "./interfaces/Cosigner.sol";
 import "./interfaces/Engine.sol";
 import "./interfaces/ERC721.sol";
-import "./utils/ERCLockable.sol";
+import "./utils/SafeWithdraw.sol";
 import "./utils/BytesUtils.sol";
 import "./interfaces/Oracle.sol";
 import "./interfaces/TokenConverter.sol";
@@ -43,7 +43,7 @@ contract Land is ERC721 {
 
     Uses a token converter to buy the Decentraland parcel with MANA using the RCN tokens received.
 */
-contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
+contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
     uint256 constant internal PRECISION = (10**18);
     uint256 constant internal RCN_DECIMALS = 18;
 
@@ -72,9 +72,6 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
     LandMarket public landMarket;
     
     constructor(Token _rcn, Token _mana, Land _land, LandMarket _landMarket) public {
-        setTokenType(mana, ERCLockable.TokenType.ERC20);
-        setTokenType(rcn, ERCLockable.TokenType.ERC20);
-        setTokenType(land, ERCLockable.TokenType.ERC721);
         rcn = _rcn;
         mana = _mana;
         land = _land;
@@ -202,7 +199,6 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
 
         // Pull the deposit and lock the tokens
         require(mana.transferFrom(msg.sender, this, deposit), "Error pulling mana");
-        lockERC20(mana, deposit);
         
         // Create the liability
         id = mortgages.push(Mortgage({
@@ -247,7 +243,6 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
 
         // Transfer the deposit back to the borrower
         require(mana.transfer(msg.sender, mortgage.deposit), "Error returning MANA");
-        unlockERC20(mana, mortgage.deposit);
 
         emit CanceledMortgage(msg.sender, id);
         return true;
@@ -303,21 +298,17 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         require(mana.approve(landMarket, 0), "Error removing approve mana transfer");
         require(flagReceiveLand == 0, "ERC721 callback not called");
         require(land.ownerOf(mortgage.landId) == address(this), "Error buying parcel");
-        lockERC721(land, mortgage.landId);
 
         // Set borrower as update operator
         land.setUpdateOperator(mortgage.landId, mortgage.owner);
 
         // Calculate the remaining amount to send to the borrower and 
         // check that we didn't expend any contract funds.
-        uint256 totalMana = safeAdd(boughtMana, mortgage.deposit);        
-        uint256 rest = safeSubtract(totalMana, currentLandCost);
+        uint256 totalMana = boughtMana.add(mortgage.deposit);        
+        uint256 rest = totalMana.sub(currentLandCost);
 
         // Return rest of MANA to the owner
         require(mana.transfer(mortgage.owner, rest), "Error returning MANA");
-
-        // Unlock MANA from deposit
-        unlockERC20(mana, mortgage.deposit);
         
         // Cosign contract, 0 is the RCN required
         require(mortgage.engine.cosign(index, 0), "Error performing cosign");
@@ -349,7 +340,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         require(from.approve(converter, amount));
         uint256 prevBalance = to.balanceOf(this);
         bought = converter.convert(from, to, amount, 1);
-        require(safeSubtract(to.balanceOf(this), prevBalance) >= bought, "Bought amount incorrect");
+        require(to.balanceOf(this).sub(prevBalance) >= bought, "Bought amount incorrect");
         require(from.approve(converter, 0));
     }
 
@@ -370,9 +361,6 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         // Validate that the mortgage wasn't claimed
         require(mortgage.status == Status.Ongoing, "Mortgage not ongoing");
         require(mortgage.loanId == loanId, "Mortgage don't match loan id");
-        
-        // Unlock the Parcel token
-        unlockERC721(land, mortgage.landId);
 
         if (mortgage.engine.getStatus(loanId) == Engine.Status.paid || mortgage.engine.getStatus(loanId) == Engine.Status.destroyed) {
             // The mortgage is paid
@@ -413,7 +401,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
     */
     function isDefaulted(Engine engine, uint256 index) public view returns (bool) {
         return engine.getStatus(index) == Engine.Status.lent &&
-            safeAdd(engine.getDueTime(index), 7 days) <= block.timestamp;
+            engine.getDueTime(index).add(7 days) <= block.timestamp;
     }
 
     /**
@@ -482,7 +470,7 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
             (rate, decimals) = oracle.getRate(currency, data);
 
             require(decimals <= RCN_DECIMALS, "Decimals exceeds max decimals");
-            return (safeMult(safeMult(amount, rate), (10**(RCN_DECIMALS-decimals)))) / PRECISION;
+            return amount.mult(rate.mult(10**(RCN_DECIMALS-decimals))) / PRECISION;
         }
     }
 
