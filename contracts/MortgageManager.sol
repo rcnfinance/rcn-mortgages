@@ -272,7 +272,7 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
         require(mortgage.status == Status.Pending, "Mortgage is not pending");
 
         // Update the status of the mortgage to avoid reentrancy
-        mortgage.status = Status.Ongoing;
+        mortgages[uint256(readBytes32(data, 0))].status = Status.Ongoing;
 
         // Mint mortgage ERC721 Token
         _generate(uint256(readBytes32(data, 0)), mortgage.owner);
@@ -284,7 +284,7 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
         // Convert the RCN into MANA using the designated
         // and save the received MANA
         uint256 boughtMana = convertSafe(mortgage.tokenConverter, rcn, mana, loanAmount);
-        delete mortgage.tokenConverter;
+        delete mortgages[uint256(readBytes32(data, 0))].tokenConverter;
 
         // Load the new cost of the parcel, it may be changed
         uint256 currentLandCost;
