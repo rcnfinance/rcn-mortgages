@@ -337,11 +337,11 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
         Token to,
         uint256 amount
     ) internal returns (uint256 bought) {
-        require(from.approve(converter, amount));
+        require(from.approve(converter, amount), "Error approve convert safe");
         uint256 prevBalance = to.balanceOf(this);
         bought = converter.convert(from, to, amount, 1);
         require(to.balanceOf(this).sub(prevBalance) >= bought, "Bought amount incorrect");
-        require(from.approve(converter, 0));
+        require(from.approve(converter, 0), "Error remove approve convert safe");
     }
 
     /**
