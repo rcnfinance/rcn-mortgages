@@ -1,21 +1,21 @@
-pragma solidity ^0.4.19;
+pragma solidity ^0.4.24;
 
 library SafeMath {
-    function safeAdd(uint256 x, uint256 y) internal pure returns(uint256) {
+    function add(uint256 x, uint256 y) internal pure returns (uint256) {
         uint256 z = x + y;
-        require((z >= x) && (z >= y));
+        require((z >= x) && (z >= y), "Add overflow");
         return z;
     }
 
-    function safeSubtract(uint256 x, uint256 y) internal pure returns(uint256) {
-        require(x >= y);
+    function sub(uint256 x, uint256 y) internal pure returns (uint256) {
+        require(x >= y, "Sub underflow");
         uint256 z = x - y;
         return z;
     }
 
-    function safeMult(uint256 x, uint256 y) internal pure returns(uint256) {
+    function mult(uint256 x, uint256 y) internal pure returns (uint256) {
         uint256 z = x * y;
-        require((x == 0)||(z/x == y));
+        require((x == 0)||(z/x == y), "Mult overflow");
         return z;
     }
 }
