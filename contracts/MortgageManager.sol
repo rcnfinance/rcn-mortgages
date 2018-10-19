@@ -263,7 +263,7 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
     */
     function requestCosign(Engine engine, uint256 index, bytes data, bytes oracleData) public returns (bool) {
         // The first word of the data MUST contain the index of the target mortgage
-        Mortgage storage mortgage = mortgages[uint256(readBytes32(data, 0))];
+        Mortgage memory mortgage = mortgages[uint256(readBytes32(data, 0))];
         
         // Validate that the loan matches with the mortgage
         // and the mortgage is still pending
@@ -447,11 +447,8 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
         @return true If data was updated
     */
     function updateLandData(uint256 id, string data) external returns (bool) {
-        Mortgage memory mortgage = mortgages[id];
         require(_isAuthorized(msg.sender, id), "Sender not authorized");
-        int256 x;
-        int256 y;
-        (x, y) = land.decodeTokenId(mortgage.landId);
+        (int256 x, int256 y) = land.decodeTokenId(mortgages[id].landId);
         land.updateLandData(x, y, data);
         emit UpdatedLandData(msg.sender, id, data);
         return true;
