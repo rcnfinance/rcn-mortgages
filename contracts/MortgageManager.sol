@@ -31,6 +31,7 @@ contract Land is ERC721 {
     function decodeTokenId(uint value) view public returns (int, int);
     function safeTransferFrom(address from, address to, uint256 assetId) public;
     function ownerOf(uint256 landID) public view returns (address);
+    function setUpdateOperator(uint256 assetId, address operator) external;
 }
 
 /**
@@ -91,7 +92,6 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         uint256 landId;
         uint256 landCost;
         Status status;
-        // ERC-721
         TokenConverter tokenConverter;
     }
 
@@ -296,13 +296,16 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
         require(currentLandCost <= mortgage.landCost, "Parcel is more expensive than expected");
         
         // Buy the land and lock it into the mortgage contract
-        require(mana.approve(landMarket, currentLandCost));
+        require(mana.approve(landMarket, currentLandCost), "Error approving mana transfer");
         flagReceiveLand = mortgage.landId;
         landMarket.executeOrder(mortgage.landId, currentLandCost);
-        require(mana.approve(landMarket, 0));
+        require(mana.approve(landMarket, 0), "Error removing approve mana transfer");
         require(flagReceiveLand == 0, "ERC721 callback not called");
         require(land.ownerOf(mortgage.landId) == address(this), "Error buying parcel");
         lockERC721(land, mortgage.landId);
+
+        // Set borrower as update operator
+        land.setUpdateOperator(mortgage.landId, mortgage.owner);
 
         // Calculate the remaining amount to send to the borrower and 
         // check that we didn't expend any contract funds.
@@ -480,5 +483,22 @@ contract MortgageManager is Cosigner, ERC721Base, ERCLockable, BytesUtils {
             require(decimals <= RCN_DECIMALS, "Decimals exceeds max decimals");
             return (safeMult(safeMult(amount, rate), (10**(RCN_DECIMALS-decimals)))) / PRECISION;
         }
+    }
+
+    //////
+    // Override transfer
+    //////
+    function _moveToken(
+        address from,
+        address to,
+        uint256 assetId,
+        bytes userData,
+        bool doCheck
+    )
+        internal
+        isCurrentOwner(from, assetId)
+    {
+        ERC721Base._moveToken(from, to, assetId, userData, doCheck);
+        land.setUpdateOperator(mortgages[assetId].landId, to);
     }
 }
