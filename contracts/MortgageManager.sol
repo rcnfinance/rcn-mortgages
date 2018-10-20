@@ -407,7 +407,7 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
     /**
         @dev An alternative version of the ERC721 callback, required by a bug in the parcels contract
     */
-    function onERC721Received(uint256 _tokenId, address _from, bytes data) external returns (bytes4) {
+    function onERC721Received(uint256 _tokenId, address, bytes) external returns (bytes4) {
         if (msg.sender == address(land) && flagReceiveLand == _tokenId) {
             flagReceiveLand = 0;
             return bytes4(keccak256("onERC721Received(address,uint256,bytes)"));
@@ -419,10 +419,22 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
 
         @dev Only accepts tokens if flag is set to tokenId, resets the flag when called
     */
-    function onERC721Received(address _from, uint256 _tokenId, bytes data) external returns (bytes4) {
+    function onERC721Received(address, uint256 _tokenId, bytes) external returns (bytes4) {
         if (msg.sender == address(land) && flagReceiveLand == _tokenId) {
             flagReceiveLand = 0;
             return bytes4(keccak256("onERC721Received(address,uint256,bytes)"));
+        }
+    }
+
+    /**
+        @notice Last callback used to accept the ERC721 parcel tokens
+
+        @dev Only accepts tokens if flag is set to tokenId, resets the flag when called
+    */
+    function onERC721Received(address, address, uint256 _tokenId, bytes) external returns (bytes4) {
+        if (msg.sender == address(land) && flagReceiveLand == _tokenId) {
+            flagReceiveLand = 0;
+            return bytes4(0x150b7a02);
         }
     }
 
