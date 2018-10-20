@@ -59,6 +59,7 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
     }
 
     event RequestedMortgage(uint256 _id, address _borrower, address _engine, uint256 _loanId, uint256 _landId, uint256 _deposit, address _tokenConverter);
+    event ReadedOracle(address _oracle, bytes32 _currency, uint256 _decimals, uint256 _rate);
     event StartedMortgage(uint256 _id);
     event CanceledMortgage(address _from, uint256 _id);
     event PaidMortgage(address _from, uint256 _id);
@@ -473,11 +474,8 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
         if (oracle == address(0)) {
             return amount;
         } else {
-            uint256 rate;
-            uint256 decimals;
-            
-            (rate, decimals) = oracle.getRate(currency, data);
-
+            (uint256 rate, uint256 decimals) = oracle.getRate(currency, data);
+            emit ReadedOracle(oracle, currency, decimals, rate);
             require(decimals <= RCN_DECIMALS, "Decimals exceeds max decimals");
             return amount.mult(rate.mult(10**(RCN_DECIMALS-decimals))) / PRECISION;
         }
