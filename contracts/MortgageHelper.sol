@@ -41,11 +41,11 @@ contract MortgageHelper is Ownable {
     ConverterRamp public converterRamp;
 
     address public manaOracle;
-    uint256 public requiredTotal = 110;
+    uint256 public requiredTotal = 105;
 
     uint256 public rebuyThreshold = 0.001 ether;
-    uint256 public marginSpend = 100;
-    uint256 public maxSpend = 100;
+    uint256 public marginSpend = 500;
+    uint256 public maxSpend = 300;
 
     bytes32 public constant MANA_CURRENCY = 0x4d414e4100000000000000000000000000000000000000000000000000000000;
 
@@ -79,6 +79,11 @@ contract MortgageHelper is Ownable {
 
         emit SetConverterRamp(converterRamp, _converterRamp);
         emit SetTokenConverter(tokenConverter, _tokenConverter);
+
+        emit SetMaxSpend(0, maxSpend);
+        emit SetMarginSpend(0, marginSpend);
+        emit SetRebuyThreshold(0, rebuyThreshold);
+        emit SetRequiredTotal(0, requiredTotal);
     }
 
     /**
