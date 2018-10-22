@@ -147,7 +147,7 @@ contract('Mortgage manager and creator', function(accounts) {
 
     async function setKyber() {
         // Deploy mortgage creator
-        mortgageHelper = await MortgageHelper.new(mortgageManager.address, rcnEngine.address, rcn.address, mana.address, landMarket.address, kyberOracle.address, kyberProxy.address, converterRamp.address)
+        mortgageHelper = await MortgageHelper.new(mortgageManager.address, rcnEngine.address, [kyberOracle.address, kyberProxy.address, converterRamp.address)
         // Whitelist the mortgage creator
         await mortgageManager.setCreator(mortgageHelper.address, true);
 
@@ -159,7 +159,7 @@ contract('Mortgage manager and creator', function(accounts) {
 
     async function setBancor() {
         // Deploy mortgage creator
-        mortgageHelper = await MortgageHelper.new(mortgageManager.address, rcnEngine.address, rcn.address, mana.address, landMarket.address, bancorOracle.address, bancorConverter.address, converterRamp.address)
+        mortgageHelper = await MortgageHelper.new(mortgageManager.address, rcnEngine.address, bancorOracle.address, bancorConverter.address, converterRamp.address)
         // Whitelist the mortgage creator
         await mortgageManager.setCreator(mortgageHelper.address, true);
 

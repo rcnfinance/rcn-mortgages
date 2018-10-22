@@ -2,29 +2,10 @@ pragma solidity ^0.4.19;
 
 import "./interfaces/Token.sol";
 import "./interfaces/TokenConverter.sol";
-// import "./MortgageManager.sol";
+import "./MortgageManager.sol";
 import "./ConverterRamp.sol";
 import "./utils/LrpSafeMath.sol";
 import "./utils/Ownable.sol";
-
-contract LandMarket {
-    struct Auction {
-        // Auction ID
-        bytes32 id;
-        // Owner of the NFT
-        address seller;
-        // Price (in wei) for the published item
-        uint256 price;
-        // Time when this sale ends
-        uint256 expiresAt;
-    }
-
-    mapping (uint256 => Auction) public auctionByAssetId;
-}
-
-interface MortgageManager {
-    function requestMortgageId(Engine, uint256, uint256, uint256, TokenConverter) external returns (uint256);
-}
 
 /**
     @notice Set of functions to operate the mortgage manager in less transactions
@@ -61,18 +42,15 @@ contract MortgageHelper is Ownable {
     constructor(
         MortgageManager _mortgageManager,
         NanoLoanEngine _nanoLoanEngine,
-        Token _rcn,
-        Token _mana,
-        LandMarket _landMarket,
         address _manaOracle,
         TokenConverter _tokenConverter,
         ConverterRamp _converterRamp
     ) public {
         mortgageManager = _mortgageManager;
         nanoLoanEngine = _nanoLoanEngine;
-        rcn = _rcn;
-        mana = _mana;
-        landMarket = _landMarket;
+        rcn = _mortgageManager.rcn();
+        mana = _mortgageManager.mana();
+        landMarket = _mortgageManager.landMarket();
         manaOracle = _manaOracle;
         tokenConverter = _tokenConverter;
         converterRamp = _converterRamp;
