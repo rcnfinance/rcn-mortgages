@@ -58,7 +58,7 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
         _symbol = "LAND-RCN-Mortgage";
     }
 
-    event RequestedMortgage(uint256 _id, address _borrower, address _engine, uint256 _loanId, uint256 _landId, uint256 _deposit, address _tokenConverter);
+    event RequestedMortgage(uint256 _id, address _borrower, address _engine, uint256 _loanId, address _landMarket, uint256 _landId, uint256 _deposit, address _tokenConverter);
     event ReadedOracle(address _oracle, bytes32 _currency, uint256 _decimals, uint256 _rate);
     event StartedMortgage(uint256 _id);
     event CanceledMortgage(address _from, uint256 _id);
@@ -66,23 +66,23 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
     event DefaultedMortgage(uint256 _id);
     event UpdatedLandData(address _updater, uint256 _parcel, string _data);
     event SetCreator(address _creator, bool _status);
+    event SetEngine(address _engine, bool _status);
 
     Token public rcn;
     Token public mana;
     Land public land;
-    LandMarket public landMarket;
     
-    constructor(Token _rcn, Token _mana, Land _land, LandMarket _landMarket) public {
+    constructor(Token _rcn, Token _mana, Land _land) public {
         rcn = _rcn;
         mana = _mana;
         land = _land;
-        landMarket = _landMarket;
         mortgages.length++;
     }
 
     enum Status { Pending, Ongoing, Canceled, Paid, Defaulted }
 
     struct Mortgage {
+        LandMarket landMarket;
         address owner;
         Engine engine;
         uint256 loanId;
@@ -98,12 +98,19 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
     Mortgage[] public mortgages;
 
     mapping(address => bool) public creators;
+    mapping(address => bool) public engines;
 
     mapping(uint256 => uint256) public mortgageByLandId;
     mapping(address => mapping(uint256 => uint256)) public loanToLiability;
 
     function url() public view returns (string) {
         return "";
+    }
+
+    function setEngine(address engine, bool authorized) external onlyOwner returns (bool) {
+        emit SetEngine(engine, authorized);
+        engines[engine] = authorized;
+        return true;
     }
 
     /**
@@ -150,10 +157,11 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
         Engine engine,
         bytes32 loanIdentifier,
         uint256 deposit,
+        LandMarket landMarket,
         uint256 landId,
         TokenConverter tokenConverter
     ) external returns (uint256 id) {
-        return requestMortgageId(engine, engine.identifierToIndex(loanIdentifier), deposit, landId, tokenConverter);
+        return requestMortgageId(engine, landMarket, engine.identifierToIndex(loanIdentifier), deposit, landId, tokenConverter);
     }
 
     /**
@@ -171,6 +179,7 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
     */
     function requestMortgageId(
         Engine engine,
+        LandMarket landMarket,
         uint256 loanId,
         uint256 deposit,
         uint256 landId,
@@ -180,6 +189,7 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
         require(engine.getCurrency(loanId) == MANA_CURRENCY, "Loan currency is not MANA");
         address borrower = engine.getBorrower(loanId);
 
+        require(engines[engine], "Engine not authorized");
         require(engine.getStatus(loanId) == Engine.Status.initial, "Loan status is not inital");
         require(msg.sender == borrower ||
                (msg.sender == engine.getCreator(loanId) && creators[msg.sender]),
@@ -207,6 +217,7 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
             engine: engine,
             loanId: loanId,
             deposit: deposit,
+            landMarket: landMarket,
             landId: landId,
             landCost: landCost,
             status: Status.Pending,
@@ -220,6 +231,7 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
             _borrower: borrower,
             _engine: engine,
             _loanId: loanId,
+            _landMarket: landMarket,
             _landId: landId,
             _deposit: deposit,
             _tokenConverter: tokenConverter
@@ -271,6 +283,7 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
         require(mortgage.engine == engine, "Engine does not match");
         require(mortgage.loanId == index, "Loan id does not match");
         require(mortgage.status == Status.Pending, "Mortgage is not pending");
+        require(engines[engine], "Engine not authorized");
 
         // Update the status of the mortgage to avoid reentrancy
         mortgage.status = Status.Ongoing;
@@ -289,14 +302,14 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
 
         // Load the new cost of the parcel, it may be changed
         uint256 currentLandCost;
-        (, , currentLandCost, ) = landMarket.auctionByAssetId(mortgage.landId);
+        (, , currentLandCost, ) = mortgage.landMarket.auctionByAssetId(mortgage.landId);
         require(currentLandCost <= mortgage.landCost, "Parcel is more expensive than expected");
         
         // Buy the land and lock it into the mortgage contract
-        require(mana.approve(landMarket, currentLandCost), "Error approving mana transfer");
+        require(mana.approve(mortgage.landMarket, currentLandCost), "Error approving mana transfer");
         flagReceiveLand = mortgage.landId;
-        landMarket.executeOrder(mortgage.landId, currentLandCost);
-        require(mana.approve(landMarket, 0), "Error removing approve mana transfer");
+        mortgage.landMarket.executeOrder(mortgage.landId, currentLandCost);
+        require(mana.approve(mortgage.landMarket, 0), "Error removing approve mana transfer");
         require(flagReceiveLand == 0, "ERC721 callback not called");
         require(land.ownerOf(mortgage.landId) == address(this), "Error buying parcel");
 

@@ -32,16 +32,23 @@ contract MortgageHelper is Ownable {
 
     event NewMortgage(address borrower, uint256 loanId, uint256 landId, uint256 mortgageId);
     event PaidLoan(address engine, uint256 loanId, uint256 amount);
-    event SetConverterRamp(address _prev, address _new);
-    event SetTokenConverter(address _prev, address _new);
+
     event SetRebuyThreshold(uint256 _prev, uint256 _new);
     event SetMarginSpend(uint256 _prev, uint256 _new);
     event SetMaxSpend(uint256 _prev, uint256 _new);
     event SetRequiredTotal(uint256 _prev, uint256 _new);
 
+    event SetTokenConverter(address _prev, address _new);
+    event SetConverterRamp(address _prev, address _new);
+    event SetManaOracle(address _manaOracle);
+    event SetEngine(address _engine);
+    event SetLandMarket(address _landMarket);
+    event SetMortgageManager(address _mortgageManager);
+
     constructor(
         MortgageManager _mortgageManager,
         NanoLoanEngine _nanoLoanEngine,
+        LandMarket _landMarket,
         address _manaOracle,
         TokenConverter _tokenConverter,
         ConverterRamp _converterRamp
@@ -50,13 +57,29 @@ contract MortgageHelper is Ownable {
         nanoLoanEngine = _nanoLoanEngine;
         rcn = _mortgageManager.rcn();
         mana = _mortgageManager.mana();
-        landMarket = _mortgageManager.landMarket();
+        landMarket = _landMarket;
         manaOracle = _manaOracle;
         tokenConverter = _tokenConverter;
         converterRamp = _converterRamp;
 
+        // Sanity checks
+        require(_nanoLoanEngine.rcn() == rcn, "RCN Mismatch");
+        require(_mortgageManager.engines(_nanoLoanEngine), "Engine is not approved");
+        require(_isContract(mana), "MANA should be a contract");
+        require(_isContract(rcn), "RCN should be a contract");
+        require(_isContract(_tokenConverter), "Token converter should be a contract");
+        require(_isContract(_landMarket), "Land market should be a contract");
+        require(_isContract(_converterRamp), "Converter ramp should be a contract");
+        require(_isContract(_manaOracle), "MANA Oracle should be a contract");
+        require(_isContract(_mortgageManager), "Mortgage manager should be a contract");
+
         emit SetConverterRamp(converterRamp, _converterRamp);
         emit SetTokenConverter(tokenConverter, _tokenConverter);
+
+        emit SetEngine(_nanoLoanEngine);
+        emit SetLandMarket(_landMarket);
+        emit SetMortgageManager(_mortgageManager);
+        emit SetManaOracle(_manaOracle);
 
         emit SetMaxSpend(0, maxSpend);
         emit SetMarginSpend(0, marginSpend);
@@ -126,6 +149,7 @@ contract MortgageHelper is Ownable {
         @return true If the change was made
     */
     function setConverterRamp(ConverterRamp _converterRamp) external onlyOwner returns (bool) {
+        require(_isContract(_converterRamp), "Should be a contract");
         emit SetConverterRamp(converterRamp, _converterRamp);
         converterRamp = _converterRamp;
         return true;
@@ -162,8 +186,37 @@ contract MortgageHelper is Ownable {
         @return true If the change was made
     */
     function setTokenConverter(TokenConverter _tokenConverter) external onlyOwner returns (bool) {
+        require(_isContract(_tokenConverter), "Should be a contract");
         emit SetTokenConverter(tokenConverter, _tokenConverter);
         tokenConverter = _tokenConverter;
+        return true;
+    }
+
+    function setManaOracle(address _manaOracle) external onlyOwner returns (bool) {
+        require(_isContract(_manaOracle), "Should be a contract");
+        emit SetManaOracle(_manaOracle);
+        manaOracle = _manaOracle;
+        return true;
+    }
+
+    function setEngine(NanoLoanEngine _engine) external onlyOwner returns (bool) {
+        require(_isContract(_engine), "Should be a contract");
+        emit SetEngine(_engine);
+        nanoLoanEngine = _engine;
+        return true;
+    }
+
+    function setLandMarket(LandMarket _landMarket) external onlyOwner returns (bool) {
+        require(_isContract(_landMarket), "Should be a contract");
+        emit SetLandMarket(_landMarket);
+        landMarket = _landMarket;
+        return true;
+    }
+
+    function setMortgageManager(MortgageManager _mortgageManager) external onlyOwner returns (bool) {
+        require(_isContract(_mortgageManager), "Should be a contract");
+        emit SetMortgageManager(_mortgageManager);
+        mortgageManager = _mortgageManager;
         return true;
     }
 
@@ -204,9 +257,7 @@ contract MortgageHelper is Ownable {
         require(_nanoLoanEngine.registerApprove(_nanoLoanEngine.getIdentifier(loanId), v, r, s), "Signature not valid");
 
         // Calculate the requested amount for the mortgage deposit
-        uint256 landCost;
-        (, , landCost, ) = landMarket.auctionByAssetId(landId);
-        uint256 requiredDeposit = ((landCost * requiredTotal) / 100) - _nanoLoanEngine.getAmount(loanId);
+        uint256 requiredDeposit = ((readLandCost(landId) * requiredTotal) / 100) - _nanoLoanEngine.getAmount(loanId);
         
         // Pull the required deposit amount
         Token _mana = mana;
@@ -214,12 +265,24 @@ contract MortgageHelper is Ownable {
         require(_mana.approve(mortgageManager, requiredDeposit), "Error approve MANA transfer");
 
         // Create the mortgage request
-        uint256 mortgageId = mortgageManager.requestMortgageId(Engine(_nanoLoanEngine), loanId, requiredDeposit, landId, tokenConverter);
+        uint256 mortgageId = mortgageManager.requestMortgageId(
+            Engine(_nanoLoanEngine),
+            landMarket,
+            loanId,
+            requiredDeposit, 
+            landId,
+            tokenConverter
+        );
+
         require(_mana.approve(mortgageManager, 0), "Error remove approve MANA transfer");
 
         emit NewMortgage(msg.sender, loanId, landId, mortgageId);
         
         return mortgageId;
+    }
+
+    function readLandCost(uint256 _landId) internal view returns (uint256 landCost) {
+        (, , landCost, ) = landMarket.auctionByAssetId(_landId);
     }
 
     /**
@@ -264,5 +327,11 @@ contract MortgageHelper is Ownable {
         require(token.balanceOf(from) >= amount, "From balance is not enough");
         require(token.allowance(from, address(this)) >= amount, "Allowance is not enough");
         require(token.transferFrom(from, to, amount), "Transfer failed");
+    }
+
+    function _isContract(address addr) internal view returns (bool) {
+        uint size;
+        assembly { size := extcodesize(addr) }
+        return size > 0;
     }
 }
