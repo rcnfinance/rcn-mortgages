@@ -204,9 +204,8 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
         (, , landCost, ) = landMarket.auctionByAssetId(landId);
         uint256 loanAmount = engine.getAmount(loanId);
 
-        // We expect a 10% extra for convertion losses
         // the remaining will be sent to the borrower
-        require((loanAmount + deposit) >= ((landCost / 10) * 11), "Not enought total amount");
+        require(loanAmount + deposit >= landCost, "Not enought total amount");
 
         // Pull the deposit and lock the tokens
         require(mana.transferFrom(msg.sender, this, deposit), "Error pulling mana");
