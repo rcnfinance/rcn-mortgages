@@ -77,6 +77,8 @@ contract('Mortgage manager and creator', function(accounts) {
         landMarket = await DecentralandMarket.new(mana.address, land.address);
         // Deploy mortgage manager
         mortgageManager = await MortgageManager.new(rcn.address, mana.address, land.address);
+        await mortgageManager.setEngine(rcnEngine.address, true);
+
         // Deploy ramp
         converterRamp = await ConverterRamp.new();
 
@@ -148,6 +150,8 @@ contract('Mortgage manager and creator', function(accounts) {
     async function setKyber() {
         // Deploy mortgage creator
         mortgageHelper = await MortgageHelper.new(mortgageManager.address, rcnEngine.address, landMarket.address, kyberOracle.address, kyberProxy.address, converterRamp.address);
+        await mortgageHelper.setRequiredTotal(110);
+
         // Whitelist the mortgage creator
         await mortgageManager.setCreator(mortgageHelper.address, true);
 
@@ -160,6 +164,8 @@ contract('Mortgage manager and creator', function(accounts) {
     async function setBancor() {
         // Deploy mortgage creator
         mortgageHelper = await MortgageHelper.new(mortgageManager.address, rcnEngine.address, landMarket.address, bancorOracle.address, bancorConverter.address, converterRamp.address)
+        await mortgageHelper.setRequiredTotal(110);
+
         // Whitelist the mortgage creator
         await mortgageManager.setCreator(mortgageHelper.address, true);
 
@@ -217,6 +223,7 @@ contract('Mortgage manager and creator', function(accounts) {
             rcnEngine.address, // Address of the RCN Engine
             loanIdentifier, // Loan id already created in RCN, it should be denominated in MANA
             30 * 10 ** 18, // Send the deposit (?) from the borrower, it should be remaining needed to buy the land + 10%
+            landMarket.address, // Market address
             landId, // Land id to buy, it has to be on sell on the Decentraland market
             kyberProxy.address
         )
@@ -311,13 +318,14 @@ contract('Mortgage manager and creator', function(accounts) {
         // Check the mortgage
         assert.equal(await mana.balanceOf(mortgageManager.address), web3.toWei(30))
         let mortgageParams = await mortgageManager.mortgages(mortgageId)
-        assert.equal(mortgageParams[0], accounts[0]) // Owner
-        assert.equal(mortgageParams[1], rcnEngine.address) // Engine
-        assert.equal(mortgageParams[2], loanId.toNumber()) // Loan id
-        assert.equal(mortgageParams[3], web3.toWei(30)) // MANA Deposit
-        assert.equal(mortgageParams[4], landId.toNumber()) // Land id
-        assert.equal(mortgageParams[5], web3.toWei(200)) // Land cost
-        assert.equal(mortgageParams[6], 0) // Status of the mortgage
+        assert.equal(mortgageParams[0], landMarket.address) // Land market
+        assert.equal(mortgageParams[1], accounts[0]) // Owner
+        assert.equal(mortgageParams[2], rcnEngine.address) // Engine
+        assert.equal(mortgageParams[3], loanId.toNumber()) // Loan id
+        assert.equal(mortgageParams[4], web3.toWei(30)) // MANA Deposit
+        assert.equal(mortgageParams[5], landId.toNumber()) // Land id
+        assert.equal(mortgageParams[6], web3.toWei(200)) // Land cost
+        assert.equal(mortgageParams[7], 0) // Status of the mortgage
     })
 
     it("Create a loan in a single transaction Bancor", async() => {
@@ -406,13 +414,14 @@ contract('Mortgage manager and creator', function(accounts) {
         // Check the mortgage
         assert.equal(await mana.balanceOf(mortgageManager.address), web3.toWei(30))
         let mortgageParams = await mortgageManager.mortgages(mortgageId)
-        assert.equal(mortgageParams[0], accounts[0]) // Owner
-        assert.equal(mortgageParams[1], rcnEngine.address) // Engine
-        assert.equal(mortgageParams[2], loanId.toNumber()) // Loan id
-        assert.equal(mortgageParams[3], web3.toWei(30)) // MANA Deposit
-        assert.equal(mortgageParams[4], landId.toNumber()) // Land id
-        assert.equal(mortgageParams[5], web3.toWei(200)) // Land cost
-        assert.equal(mortgageParams[6], 0) // Status of the mortgage
+        assert.equal(mortgageParams[0], landMarket.address) // Land market
+        assert.equal(mortgageParams[1], accounts[0]) // Owner
+        assert.equal(mortgageParams[2], rcnEngine.address) // Engine
+        assert.equal(mortgageParams[3], loanId.toNumber()) // Loan id
+        assert.equal(mortgageParams[4], web3.toWei(30)) // MANA Deposit
+        assert.equal(mortgageParams[5], landId.toNumber()) // Land id
+        assert.equal(mortgageParams[6], web3.toWei(200)) // Land cost
+        assert.equal(mortgageParams[7], 0) // Status of the mortgage
     })
 
 
@@ -449,7 +458,7 @@ contract('Mortgage manager and creator', function(accounts) {
         // Mint MANA and Request mortgage
         await mana.createTokens(accounts[2], 40*10**18);
         await mana.approve(mortgageManager.address, 40*10**18, {from:accounts[2]})
-        await mortgageManager.requestMortgageId(rcnEngine.address, loanId, 40*10**18, landId, bancorConverter.address, {from:accounts[2]});
+        await mortgageManager.requestMortgageId(rcnEngine.address, landMarket.address, loanId, 40*10**18, landId, bancorConverter.address, {from:accounts[2]});
         let cosignerData = await mortgageManager.getData(1);
 
         // Lendadd
@@ -468,12 +477,13 @@ contract('Mortgage manager and creator', function(accounts) {
         assert.equal(await rcnEngine.getCosigner(loanId), mortgageManager.address)
         
         let mortgage = await mortgageManager.mortgages(1);
-        assert.equal(mortgage[0], accounts[2], "Borrower address")
-        assert.equal(mortgage[1], rcnEngine.address, "Engine address")
-        assert.equal(mortgage[2].toNumber(), 1, "Loan ID should be 1")
-        assert.equal(mortgage[3].toNumber(), 40*10**18, "Deposit is 40 MANA")
-        assert.equal(mortgage[5].toNumber(), 200*10**18, "Check land cost")
-        assert.equal(mortgage[6].toNumber(), 1, "Status should be Ongoing")
+        assert.equal(mortgage[0], landMarket.address) // Land market
+        assert.equal(mortgage[1], accounts[2], "Borrower address")
+        assert.equal(mortgage[2], rcnEngine.address, "Engine address")
+        assert.equal(mortgage[3].toNumber(), 1, "Loan ID should be 1")
+        assert.equal(mortgage[4].toNumber(), 40*10**18, "Deposit is 40 MANA")
+        assert.equal(mortgage[6].toNumber(), 200*10**18, "Check land cost")
+        assert.equal(mortgage[7].toNumber(), 1, "Status should be Ongoing")
 
         // Also test the ERC-721
         assert.equal(await mortgageManager.balanceOf(accounts[2]), 1)
@@ -492,7 +502,7 @@ contract('Mortgage manager and creator', function(accounts) {
         // Check the mortgage status
         mortgage = await mortgageManager.mortgages(1);
         assert.equal(await land.ownerOf(landId), accounts[2])
-        assert.equal(mortgage[6].toNumber(), 3, "Status should be Paid")
+        assert.equal(mortgage[7].toNumber(), 3, "Status should be Paid")
 
         // Also test the ERC-721
         assert.equal(await mortgageManager.balanceOf(accounts[2]), 0)
@@ -518,7 +528,7 @@ contract('Mortgage manager and creator', function(accounts) {
         // Mint MANA and Request mortgage
         await mana.createTokens(accounts[2], 40*10**18);
         await mana.approve(mortgageManager.address, 40*10**18, {from:accounts[2]})
-        await mortgageManager.requestMortgageId(rcnEngine.address, loanId, 40*10**18, landId, bancorConverter.address, {from:accounts[2]});
+        await mortgageManager.requestMortgageId(rcnEngine.address, landMarket.address, loanId, 40*10**18, landId, bancorConverter.address, {from:accounts[2]});
         let cosignerData = await mortgageManager.getData(1);
 
         // Lendadd
@@ -536,12 +546,12 @@ contract('Mortgage manager and creator', function(accounts) {
         assert.equal(await rcnEngine.getCosigner(loanId), mortgageManager.address)
         
         let mortgage = await mortgageManager.mortgages(1);
-        assert.equal(mortgage[0], accounts[2], "Borrower address")
-        assert.equal(mortgage[1], rcnEngine.address, "Engine address")
-        assert.equal(mortgage[2].toNumber(), 1, "Loan ID should be 1")
-        assert.equal(mortgage[3].toNumber(), 40*10**18, "Deposit is 40 MANA")
-        assert.equal(mortgage[5].toNumber(), 200*10**18, "Check land cost")
-        assert.equal(mortgage[6].toNumber(), 1, "Status should be Ongoing")
+        assert.equal(mortgage[1], accounts[2], "Borrower address")
+        assert.equal(mortgage[2], rcnEngine.address, "Engine address")
+        assert.equal(mortgage[3].toNumber(), 1, "Loan ID should be 1")
+        assert.equal(mortgage[4].toNumber(), 40*10**18, "Deposit is 40 MANA")
+        assert.equal(mortgage[6].toNumber(), 200*10**18, "Check land cost")
+        assert.equal(mortgage[7].toNumber(), 1, "Status should be Ongoing")
 
         // Also test the ERC-721
         assert.equal(await mortgageManager.balanceOf(accounts[2]), 1)
@@ -578,7 +588,7 @@ contract('Mortgage manager and creator', function(accounts) {
         // Mint MANA and Request mortgage
         await mana.createTokens(accounts[2], 40*10**18);
         await mana.approve(mortgageManager.address, 40*10**18, {from:accounts[2]})
-        await mortgageManager.requestMortgageId(rcnEngine.address, loanId, 40*10**18, landId, kyberProxy.address, {from:accounts[2]});
+        await mortgageManager.requestMortgageId(rcnEngine.address, landMarket.address, loanId, 40*10**18, landId, kyberProxy.address, {from:accounts[2]});
         let cosignerData = await mortgageManager.getData(1);
  
         // Lend
@@ -594,12 +604,12 @@ contract('Mortgage manager and creator', function(accounts) {
         assert.equal(await rcnEngine.getCosigner(loanId), mortgageManager.address)
         
         let mortgage = await mortgageManager.mortgages(1);
-        assert.equal(mortgage[0], accounts[2], "Borrower address")
-        assert.equal(mortgage[1], rcnEngine.address, "Engine address")
-        assert.equal(mortgage[2].toNumber(), 1, "Loan ID should be 1")
-        assert.equal(mortgage[3].toNumber(), 40*10**18, "Deposit is 40 MANA")
-        assert.equal(mortgage[5].toNumber(), 200*10**18, "Check land cost")
-        assert.equal(mortgage[6].toNumber(), 1, "Status should be Ongoing")
+        assert.equal(mortgage[1], accounts[2], "Borrower address")
+        assert.equal(mortgage[2], rcnEngine.address, "Engine address")
+        assert.equal(mortgage[3].toNumber(), 1, "Loan ID should be 1")
+        assert.equal(mortgage[4].toNumber(), 40*10**18, "Deposit is 40 MANA")
+        assert.equal(mortgage[6].toNumber(), 200*10**18, "Check land cost")
+        assert.equal(mortgage[7].toNumber(), 1, "Status should be Ongoing")
 
         // Also test the ERC-721
         assert.equal(await mortgageManager.balanceOf(accounts[2]), 1)
@@ -618,10 +628,10 @@ contract('Mortgage manager and creator', function(accounts) {
         // Check the mortgage status
         mortgage = await mortgageManager.mortgages(1);
         assert.equal(await land.ownerOf(landId), accounts[2])
-        assert.equal(mortgage[6].toNumber(), 3, "Status should be Paid")
+        assert.equal(mortgage[7].toNumber(), 3, "Status should be Paid")
 
         // Also test the ERC-721
-        assert.equal(await mortgageManager.balanceOf(accounts[2]), 0)
+        assert.equal((await mortgageManager.balanceOf(accounts[2])).toNumber(), 0)
         assert.equal(await mortgageManager.totalSupply(), 0)
     })
     it("Borrower should be able to update land data", async function(){
@@ -643,7 +653,7 @@ contract('Mortgage manager and creator', function(accounts) {
         // Mint MANA and Request mortgage
         await mana.createTokens(accounts[2], 40*10**18);
         await mana.approve(mortgageManager.address, 40*10**18, {from:accounts[2]})
-        await mortgageManager.requestMortgageId(rcnEngine.address, loanId, 40*10**18, landId, kyberProxy.address, {from:accounts[2]});
+        await mortgageManager.requestMortgageId(rcnEngine.address, landMarket.address, loanId, 40*10**18, landId, kyberProxy.address, {from:accounts[2]});
         let mortgageId = 1;
         let cosignerData = await mortgageManager.getData(mortgageId);
  
