@@ -113,6 +113,10 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
         return true;
     }
 
+    function setURIProvider(address _provider) external onlyOwner returns (bool) {
+        return _setURIProvider(_provider);
+    }
+
     /**
         @notice Sets a new third party creator
         
