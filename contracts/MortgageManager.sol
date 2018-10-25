@@ -399,9 +399,6 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
             revert("Mortgage not defaulted/paid");
         }
 
-        // ERC721 Delete asset
-        _destroy(mortgageId);
-
         // Delete mortgage id registry
         delete mortgageByLandId[mortgage.landId];
 
