@@ -1,7 +1,7 @@
 pragma solidity ^0.4.24;
 
-import "./SafeMath.sol";
-import "./ERC165.sol";
+import "./utils/SafeMath.sol";
+import "./utils/ERC165.sol";
 
 interface URIProvider {
     function tokenURI(uint256 _tokenId) external view returns (string);
