@@ -1,11 +1,15 @@
 pragma solidity ^0.4.24;
 
+import "./utils/Ownable.sol";
 import "./utils/SafeMath.sol";
+import "./utils/ERC165.sol";
 
-contract ERC721Base {
+interface URIProvider {
+    function tokenURI(uint256 _tokenId) external view returns (string);
+}
+
+contract ERC721Base is ERC165, Ownable {
     using SafeMath for uint256;
-
-    uint256 private _count;
 
     mapping(uint256 => address) private _holderOf;
     mapping(address => uint256[]) private _assetsOf;
@@ -20,19 +24,117 @@ contract ERC721Base {
     event Approval(address indexed _owner, address indexed _approved, uint256 _tokenId);
     event ApprovalForAll(address indexed _owner, address indexed _operator, bool _approved);
 
-    //
-    // Global Getters
-    //
+    bytes4 private constant ERC_721_INTERFACE = 0x80ac58cd;
+    bytes4 private constant ERC_721_METADATA_INTERFACE = 0x5b5e139f;
+    bytes4 private constant ERC_721_ENUMERATION_INTERFACE = 0x780e9d63;
+
+    constructor(
+        string name,
+        string symbol
+    ) public {
+        _name = name;
+        _symbol = symbol;
+
+        _registerInterface(ERC_721_INTERFACE);
+        _registerInterface(ERC_721_METADATA_INTERFACE);
+        _registerInterface(ERC_721_ENUMERATION_INTERFACE);
+    }
+
+    // ///
+    // ERC721 Metadata
+    // ///
+
+    /// ERC-721 Non-Fungible Token Standard, optional metadata extension
+    /// See https://github.com/ethereum/EIPs/blob/master/EIPS/eip-721.md
+    /// Note: the ERC-165 identifier for this interface is 0x5b5e139f.
+
+    event SetURIProvider(address _uriProvider);
+
+    string private _name;
+    string private _symbol;
+
+    URIProvider private _uriProvider;
+
+    // @notice A descriptive name for a collection of NFTs in this contract
+    function name() external view returns (string) {
+        return _name;
+    }
+
+    // @notice An abbreviated name for NFTs in this contract
+    function symbol() external view returns (string) {
+        return _symbol;
+    }
+
+    /**
+    * @notice A distinct Uniform Resource Identifier (URI) for a given asset.
+    * @dev Throws if `_tokenId` is not a valid NFT. URIs are defined in RFC
+    *  3986. The URI may point to a JSON file that conforms to the "ERC721
+    *  Metadata JSON Schema".
+    */
+    function tokenURI(uint256 _tokenId) external view returns (string) {
+        require(_holderOf[_tokenId] != 0, "Asset does not exist");
+        URIProvider provider = _uriProvider;
+        return provider == address(0) ? "" : provider.tokenURI(_tokenId);
+    }
+
+    function setURIProvider(URIProvider _provider) external onlyOwner returns (bool) {
+        emit SetURIProvider(_provider);
+        _uriProvider = _provider;
+        return true;
+    }
+ 
+    // ///
+    // ERC721 Enumeration
+    // ///
+
+    ///  ERC-721 Non-Fungible Token Standard, optional enumeration extension
+    ///  See https://github.com/ethereum/EIPs/blob/master/EIPS/eip-721.md
+    ///  Note: the ERC-165 identifier for this interface is 0x780e9d63.
+
+    uint256[] private _allTokens;
+
+    function allTokens() external view returns (uint256[]) {
+        return _allTokens;
+    }
+
+    function assetsOf(address _owner) external view returns (uint256[]) {
+        require(_owner != address(0), "0x0 Is not a valid owner");
+        return _assetsOf[_owner];
+    }
 
     /**
      * @dev Gets the total amount of assets stored by the contract
      * @return uint256 representing the total amount of assets
      */
     function totalSupply() external view returns (uint256) {
-        return _totalSupply();
+        return _allTokens.length;
     }
-    function _totalSupply() internal view returns (uint256) {
-        return _count;
+
+    /**
+    * @notice Enumerate valid NFTs
+    * @dev Throws if `_index` >= `totalSupply()`.
+    * @param _index A counter less than `totalSupply()`
+    * @return The token identifier for the `_index`th NFT,
+    *  (sort order not specified)
+    */
+    function tokenByIndex(uint256 _index) external view returns (uint256) {
+        require(_index < _allTokens.length, "Index out of bounds");
+        return _allTokens[_index];
+    }
+
+    /**
+    * @notice Enumerate NFTs assigned to an owner
+    * @dev Throws if `_index` >= `balanceOf(_owner)` or if
+    *  `_owner` is the zero address, representing invalid NFTs.
+    * @param _owner An address where we are interested in NFTs owned by them
+    * @param _index A counter less than `balanceOf(_owner)`
+    * @return The token identifier for the `_index`th NFT assigned to `_owner`,
+    *   (sort order not specified)
+    */
+    function tokenOfOwnerByIndex(address _owner, uint256 _index) external view returns (uint256) {
+        require(_owner != address(0), "0x0 Is not a valid owner");
+        require(_index < _balanceOf(_owner), "Index out of bounds");
+        return _assetsOf[_owner][_index];
     }
 
     //
@@ -109,8 +211,7 @@ contract ERC721Base {
     function isAuthorized(address operator, uint256 assetId) external view returns (bool) {
         return _isAuthorized(operator, assetId);
     }
-    function _isAuthorized(address operator, uint256 assetId) internal view returns (bool)
-    {
+    function _isAuthorized(address operator, uint256 assetId) internal view returns (bool) {
         require(operator != 0);
         address owner = _ownerOf(assetId);
         if (operator == owner) {
@@ -170,41 +271,37 @@ contract ERC721Base {
     //
 
     function _addAssetTo(address to, uint256 assetId) internal {
+        // Store asset owner
         _holderOf[assetId] = to;
 
+        // Store index of the asset
         uint256 length = _balanceOf(to);
-
         _assetsOf[to].push(assetId);
-
         _indexOfAsset[assetId] = length;
 
-        _count = _count.add(1);
+        // Save main enumerable
+        _allTokens.push(assetId);
     }
 
-    function _removeAssetFrom(address from, uint256 assetId) internal {
-        uint256 assetIndex = _indexOfAsset[assetId];
-        uint256 lastAssetIndex = _balanceOf(from).sub(1);
-        uint256 lastAssetId = _assetsOf[from][lastAssetIndex];
-
-        _holderOf[assetId] = 0;
+    function _transferAsset(address _from, address _to, uint256 _assetId) internal {
+        uint256 assetIndex = _indexOfAsset[_assetId];
+        uint256 lastAssetIndex = _balanceOf(_from).sub(1);
+        uint256 lastAssetId = _assetsOf[_from][lastAssetIndex];
 
         // Insert the last asset into the position previously occupied by the asset to be removed
-        _assetsOf[from][assetIndex] = lastAssetId;
+        _assetsOf[_from][assetIndex] = lastAssetId;
 
         // Resize the array
-        _assetsOf[from][lastAssetIndex] = 0;
-        _assetsOf[from].length--;
+        _assetsOf[_from][lastAssetIndex] = 0;
+        _assetsOf[_from].length--;
 
-        // Remove the array if no more assets are owned to prevent pollution
-        if (_assetsOf[from].length == 0) {
-            delete _assetsOf[from];
-        }
+        // Change owner
+        _holderOf[_assetId] = _to;
 
-        // Update the index of positions for the asset
-        _indexOfAsset[assetId] = 0;
-        _indexOfAsset[lastAssetId] = assetIndex;
-
-        _count = _count.sub(1);
+        // Update the index of positions of the asset
+        uint256 length = _balanceOf(_to);
+        _assetsOf[_to].push(_assetId);
+        _indexOfAsset[_assetId] = length;
     }
 
     function _clearApproval(address holder, uint256 assetId) internal {
@@ -226,15 +323,6 @@ contract ERC721Base {
         emit Transfer(0x0, beneficiary, assetId);
     }
 
-    function _destroy(uint256 assetId) internal {
-        address holder = _holderOf[assetId];
-        require(holder != 0);
-
-        _removeAssetFrom(holder, assetId);
-
-        emit Transfer(holder, 0x0, assetId);
-    }
-
     //
     // Transaction related operations
     //
@@ -251,6 +339,11 @@ contract ERC721Base {
 
     modifier isCurrentOwner(address from, uint256 assetId) {
         require(_ownerOf(assetId) == from);
+        _;
+    }
+
+    modifier addressDefined(address _target) {
+        require(_target != address(0), "Target can't be 0x0");
         _;
     }
 
@@ -292,6 +385,9 @@ contract ERC721Base {
         return _doTransferFrom(from, to, assetId, "", false);
     }
 
+    /**
+     * Internal function that moves an asset from one holder to another
+     */
     function _doTransferFrom(
         address from,
         address to,
@@ -313,12 +409,12 @@ contract ERC721Base {
         bool doCheck
     )
         internal
+        addressDefined(to)
         isCurrentOwner(from, assetId)
     {
         address holder = _holderOf[assetId];
-        _removeAssetFrom(holder, assetId);
         _clearApproval(holder, assetId);
-        _addAssetTo(to, assetId);
+        _transferAsset(holder, to, assetId);
 
         if (doCheck && _isContract(to)) {
             // Call dest contract
@@ -350,7 +446,7 @@ contract ERC721Base {
                     )
                 );
 
-                require(success == 1 && result == ERC721_RECEIVED_LEGACY, "Rejected ERC721 by the contract");
+                require(success == 1 && result == ERC721_RECEIVED_LEGACY);
             }
         }
 
@@ -358,15 +454,10 @@ contract ERC721Base {
     }
 
     /**
-     * Internal function that moves an asset from one holder to another
-     */
-
-    /**
      * @dev Returns `true` if the contract implements `interfaceID` and `interfaceID` is not 0xffffffff, `false` otherwise
      * @param    _interfaceID The interface identifier, as specified in ERC-165
      */
     function supportsInterface(bytes4 _interfaceID) external view returns (bool) {
-
         if (_interfaceID == 0xffffffff) {
             return false;
         }
