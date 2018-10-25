@@ -50,14 +50,6 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
     bytes32 public constant MANA_CURRENCY = 0x4d414e4100000000000000000000000000000000000000000000000000000000;
     uint256 public constant REQUIRED_ALLOWANCE = 1000000000 * 10**18;
 
-    function name() public pure returns (string _name) {
-        _name = "Decentraland RCN Mortgage";
-    }
-
-    function symbol() public pure returns (string _symbol) {
-        _symbol = "LAND-RCN-Mortgage";
-    }
-
     event RequestedMortgage(uint256 _id, address _borrower, address _engine, uint256 _loanId, address _landMarket, uint256 _landId, uint256 _deposit, address _tokenConverter);
     event ReadedOracle(address _oracle, bytes32 _currency, uint256 _decimals, uint256 _rate);
     event StartedMortgage(uint256 _id);
@@ -72,7 +64,11 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
     Token public mana;
     Land public land;
     
-    constructor(Token _rcn, Token _mana, Land _land) public {
+    constructor(
+        Token _rcn,
+        Token _mana,
+        Land _land
+    ) public ERC721Base("Decentraland RCN Mortgage", "LAND-RCN-M") {
         rcn = _rcn;
         mana = _mana;
         land = _land;
