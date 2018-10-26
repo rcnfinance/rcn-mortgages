@@ -501,9 +501,6 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
         bool _doCheck
     )
         internal
-        onlyAuthorized(_assetId)
-        addressDefined(_to)
-        isCurrentOwner(_from, _assetId)
     {
         ERC721Base._doTransferFrom(_from, _to, _assetId, _userData, _doCheck);
         land.setUpdateOperator(mortgages[_assetId].landId, _to);

@@ -758,9 +758,8 @@ contract('Mortgage manager and creator', function(accounts) {
 
         // Owner should be able to transfer after approve
         await mortgageManager.approve(accounts[1], mortgageId, { from: accounts[6] });
-        console.log(await mortgageManager.transferFrom(accounts[6], accounts[2], mortgageId, { from: accounts[6] }));
+        await mortgageManager.transferFrom(accounts[6], accounts[2], mortgageId, { from: accounts[6] });
         await assertThrow(mortgageManager.transferFrom(accounts[6], accounts[1], mortgageId, { from: accounts[1] }));
         assert.equal(await mortgageManager.ownerOf(mortgageId), accounts[2]);
-        assert.equal(true, false);
     });
 })
