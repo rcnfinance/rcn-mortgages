@@ -197,7 +197,7 @@ contract('Mortgage manager and creator', function(accounts) {
 
         let durationLoan = 6 * 30 * 24 * 60 * 60
         let closeTime = 5 * 30 * 24 * 60 * 60
-        let expirationRequest = Math.floor(Date.now() / 1000) + 1 * 30 * 24 * 60 * 60
+        let expirationRequest = 10 ** 18;
 
         // Create the loan on the RCN engine and save the id
         // the loan should be in MANA currency
@@ -253,7 +253,7 @@ contract('Mortgage manager and creator', function(accounts) {
 
         let loanDuration = 6 * 30 * 24 * 60 * 60
         let closeTime = 5 * 30 * 24 * 60 * 60
-        let expirationRequest = Math.floor(Date.now() / 1000) + 1 * 30 * 24 * 60 * 60
+        let expirationRequest = 10 ** 18;
 
         let loanParams = [
             web3.toWei(190), // Amount requested
@@ -349,7 +349,7 @@ contract('Mortgage manager and creator', function(accounts) {
 
         let loanDuration = 6 * 30 * 24 * 60 * 60
         let closeTime = 5 * 30 * 24 * 60 * 60
-        let expirationRequest = Math.floor(Date.now() / 1000) + 1 * 30 * 24 * 60 * 60
+        let expirationRequest = 10 ** 18;
 
         let loanParams = [
             web3.toWei(190), // Amount requested
@@ -490,14 +490,14 @@ contract('Mortgage manager and creator', function(accounts) {
         assert.equal(await mortgageManager.totalSupply(), 1)
 
         // Try to claim the mortgage witout default or payment
-        await assertThrow(mortgageManager.claim(rcnEngine.address, 0, [], {from:accounts[2]})) // As borrower
-        await assertThrow(mortgageManager.claim(rcnEngine.address, 0, [], {from:accounts[3]})) // As lender
+        await assertThrow(mortgageManager.claim(rcnEngine.address, loanId, [], {from:accounts[2]})) // As borrower
+        await assertThrow(mortgageManager.claim(rcnEngine.address, loanId, [], {from:accounts[3]})) // As lender
 
         // Pay the loan and claim the mortgage
         await rcn.createTokens(accounts[2], 300*10**18)
         await rcn.approve(rcnEngine.address, 10**32, {from:accounts[2]})
         await rcnEngine.pay(loanId, 500*10**18, accounts[2], [], {from:accounts[2]})
-        await mortgageManager.claim(rcnEngine.address, 1, [], {from:accounts[2]})
+        await mortgageManager.claim(rcnEngine.address, loanId, [], {from:accounts[2]})
 
         // Check the mortgage status
         mortgage = await mortgageManager.mortgages(1);
@@ -558,8 +558,8 @@ contract('Mortgage manager and creator', function(accounts) {
         assert.equal(await mortgageManager.totalSupply(), 1)
 
         // Try to claim the mortgage witout default or payment
-        await assertThrow(mortgageManager.claim(rcnEngine.address, 0, [], {from:accounts[2]})) // As borrower
-        await assertThrow(mortgageManager.claim(rcnEngine.address, 0, [], {from:accounts[3]})) // As lender
+        await assertThrow(mortgageManager.claim(rcnEngine.address, loanId, [], {from:accounts[2]})) // As borrower
+        await assertThrow(mortgageManager.claim(rcnEngine.address, loanId, [], {from:accounts[3]})) // As lender
 
         // Perform a partial payment
         await mana.createTokens(accounts[2], 101*10**18)
@@ -616,8 +616,8 @@ contract('Mortgage manager and creator', function(accounts) {
         assert.equal(await mortgageManager.totalSupply(), 1)
 
         // Try to claim the mortgage witout default or payment
-        await assertThrow(mortgageManager.claim(rcnEngine.address, 1, [], {from:accounts[2]})) // As borrower
-        await assertThrow(mortgageManager.claim(rcnEngine.address, 1, [], {from:accounts[3]})) // As lender
+        await assertThrow(mortgageManager.claim(rcnEngine.address, loanId, [], {from:accounts[2]})) // As borrower
+        await assertThrow(mortgageManager.claim(rcnEngine.address, loanId, [], {from:accounts[3]})) // As lender
 
         // Pay the loan and claim the mortgage
         await rcn.createTokens(accounts[2], 300*10**18)
@@ -761,5 +761,158 @@ contract('Mortgage manager and creator', function(accounts) {
         await mortgageManager.transferFrom(accounts[6], accounts[2], mortgageId, { from: accounts[6] });
         await assertThrow(mortgageManager.transferFrom(accounts[6], accounts[1], mortgageId, { from: accounts[1] }));
         assert.equal(await mortgageManager.ownerOf(mortgageId), accounts[2]);
+    });
+    it("Should be claimeable after default", async() => {
+        await setBancor();
+
+        // Buy land and put it to sell
+        await land.assignNewParcel(50, 60, accounts[1])
+        await land.setApprovalForAll(landMarket.address, true, {from:accounts[1]})
+        let landId = await land.encodeTokenId(50, 60)
+        await landMarket.createOrder(landId, 200 * 10**18, 10**30, {from:accounts[1]})
+
+        // Request a loan for the mortgage it should be index 0
+        let loanReceipt = await rcnEngine.createLoan(bancorOracle.address, accounts[2], manaCurrency, 190*10**18, 100000000, 100000000, 86400, 0, 10**30, "Test mortgage Bancor", {from:accounts[2]});
+        let loanId = loanReceipt["logs"][0]["args"]["_index"];
+
+        // Authorize mortgage manager
+        await rcn.approve(mortgageManager.address, 10**32, {from:accounts[2]})
+        
+        // Mint MANA and Request mortgage
+        await mana.createTokens(accounts[2], 40*10**18);
+        await mana.approve(mortgageManager.address, 40*10**18, {from:accounts[2]})
+        await mortgageManager.requestMortgageId(rcnEngine.address, landMarket.address, loanId, 40*10**18, landId, bancorConverter.address, {from:accounts[2]});
+        let cosignerData = await mortgageManager.getData(1);
+
+        // Lendadd
+        await rcn.createTokens(accounts[3], 10**32);
+        await rcn.approve(rcnEngine.address, 10**32, {from:accounts[3]});
+        await rcn.approve(bancorConverter.address, 1 * 10**18, {from:accounts[3]});
+
+        await rcnEngine.lend(loanId, [], mortgageManager.address, cosignerData, {from:accounts[3]});
+
+        // Check that the mortgage started
+        assert.equal(await land.ownerOf(landId), mortgageManager.address);
+        assert.equal(await mana.balanceOf(accounts[1]), 200*10**18);
+        assert.equal(await mana.balanceOf(mortgageManager.address), 0)
+        assert.equal(await rcn.balanceOf(mortgageManager.address), 0)
+        assert.equal(await rcnEngine.getCosigner(loanId), mortgageManager.address)
+        
+        let mortgage = await mortgageManager.mortgages(1);
+        assert.equal(mortgage[1], accounts[2], "Borrower address")
+        assert.equal(mortgage[2], rcnEngine.address, "Engine address")
+        assert.equal(mortgage[3].toNumber(), 1, "Loan ID should be 1")
+        assert.equal(mortgage[4].toNumber(), 40*10**18, "Deposit is 40 MANA")
+        assert.equal(mortgage[6].toNumber(), 200*10**18, "Check land cost")
+        assert.equal(mortgage[7].toNumber(), 1, "Status should be Ongoing")
+
+        // Also test the ERC-721
+        assert.equal(await mortgageManager.balanceOf(accounts[2]), 1)
+        assert.equal(await mortgageManager.totalSupply(), 1)
+
+        // Perform a partial payment
+        await mana.createTokens(accounts[2], 101*10**18)
+        await mana.approve(mortgageHelper.address, 101*10**18, {from:accounts[2]})
+        await mortgageHelper.pay(rcnEngine.address, loanId, 100*10**18, {from:accounts[2]})
+        
+
+        // Try to claim the mortgage witout default or payment
+        await assertThrow(mortgageManager.claim(rcnEngine.address, loanId, [], {from:accounts[2]})) // As borrower
+        await assertThrow(mortgageManager.claim(rcnEngine.address, loanId, [], {from:accounts[3]})) // As lender
+
+        // Wait loan time, less than 1 week
+        await web3.currentProvider.send({jsonrpc: "2.0", method: "evm_increaseTime", params: [2 * 86400], id: 0});
+
+        // Try to claim the mortgage witout default or payment
+        await assertThrow(mortgageManager.claim(rcnEngine.address, loanId, [], {from:accounts[2]})) // As borrower
+        await assertThrow(mortgageManager.claim(rcnEngine.address, loanId, [], {from:accounts[3]})) // As lender
+
+        assert.equal(await land.ownerOf(landId), mortgageManager.address);
+
+        // Wait loan time, less than 1 week
+        await web3.currentProvider.send({jsonrpc: "2.0", method: "evm_increaseTime", params: [5 * 86400 + 200], id: 0});
+
+        // Claim as lender
+        await mortgageManager.claim(rcnEngine.address, loanId, [], {from:accounts[3]})
+
+        assert.equal(await land.ownerOf(landId), accounts[3]);
+
+        let mortgage2 = await mortgageManager.mortgages(1);
+        assert.equal(mortgage2[7], 3, "Status should be defaulted");
+    });
+    it("Should be claimeable after default, with partial payment", async() => {
+        await setBancor();
+
+        // Buy land and put it to sell
+        await land.assignNewParcel(50, 60, accounts[1])
+        await land.setApprovalForAll(landMarket.address, true, {from:accounts[1]})
+        let landId = await land.encodeTokenId(50, 60)
+        await landMarket.createOrder(landId, 200 * 10**18, 10**30, {from:accounts[1]})
+
+        // Request a loan for the mortgage it should be index 0
+        let loanReceipt = await rcnEngine.createLoan(bancorOracle.address, accounts[2], manaCurrency, 190*10**18, 100000000, 100000000, 86400, 0, 10**30, "Test mortgage Bancor", {from:accounts[2]});
+        let loanId = loanReceipt["logs"][0]["args"]["_index"];
+
+        // Authorize mortgage manager
+        await rcn.approve(mortgageManager.address, 10**32, {from:accounts[2]})
+        
+        // Mint MANA and Request mortgage
+        await mana.createTokens(accounts[2], 40*10**18);
+        await mana.approve(mortgageManager.address, 40*10**18, {from:accounts[2]})
+        await mortgageManager.requestMortgageId(rcnEngine.address, landMarket.address, loanId, 40*10**18, landId, bancorConverter.address, {from:accounts[2]});
+        let cosignerData = await mortgageManager.getData(1);
+
+        // Lendadd
+        await rcn.createTokens(accounts[3], 10**32);
+        await rcn.approve(rcnEngine.address, 10**32, {from:accounts[3]});
+        await rcn.approve(bancorConverter.address, 1 * 10**18, {from:accounts[3]});
+
+        await rcnEngine.lend(loanId, [], mortgageManager.address, cosignerData, {from:accounts[3]});
+
+        // Check that the mortgage started
+        assert.equal(await land.ownerOf(landId), mortgageManager.address);
+        assert.equal(await mana.balanceOf(accounts[1]), 200*10**18);
+        assert.equal(await mana.balanceOf(mortgageManager.address), 0)
+        assert.equal(await rcn.balanceOf(mortgageManager.address), 0)
+        assert.equal(await rcnEngine.getCosigner(loanId), mortgageManager.address)
+        
+        let mortgage = await mortgageManager.mortgages(1);
+        assert.equal(mortgage[1], accounts[2], "Borrower address")
+        assert.equal(mortgage[2], rcnEngine.address, "Engine address")
+        assert.equal(mortgage[3].toNumber(), 1, "Loan ID should be 1")
+        assert.equal(mortgage[4].toNumber(), 40*10**18, "Deposit is 40 MANA")
+        assert.equal(mortgage[6].toNumber(), 200*10**18, "Check land cost")
+        assert.equal(mortgage[7].toNumber(), 1, "Status should be Ongoing")
+
+        // Also test the ERC-721
+        assert.equal(await mortgageManager.balanceOf(accounts[2]), 1)
+        assert.equal(await mortgageManager.totalSupply(), 1)
+
+        // Try to claim the mortgage witout default or payment
+        await assertThrow(mortgageManager.claim(rcnEngine.address, loanId, [], {from:accounts[2]})) // As borrower
+        await assertThrow(mortgageManager.claim(rcnEngine.address, loanId, [], {from:accounts[3]})) // As lender
+
+        // Wait loan time, less than 1 week
+        await web3.currentProvider.send({jsonrpc: "2.0", method: "evm_increaseTime", params: [2 * 86400], id: 0});
+
+        // Try to claim the mortgage witout default or payment
+        await assertThrow(mortgageManager.claim(rcnEngine.address, loanId, [], {from:accounts[2]})) // As borrower
+        await assertThrow(mortgageManager.claim(rcnEngine.address, loanId, [], {from:accounts[3]})) // As lender
+
+        assert.equal(await land.ownerOf(landId), mortgageManager.address);
+
+        // Wait loan time, less than 1 week
+        await web3.currentProvider.send({jsonrpc: "2.0", method: "evm_increaseTime", params: [5 * 86400 + 200], id: 0});
+
+        await assertThrow(mortgageManager.claim(rcnEngine.address, loanId, [], {from:accounts[2]})) // As borrower
+        assert.equal(await land.ownerOf(landId), mortgageManager.address);
+
+        // Claim as lender
+        await mortgageManager.claim(rcnEngine.address, loanId, [], {from:accounts[3]})
+
+        assert.equal(await land.ownerOf(landId), accounts[3]);
+
+        let mortgage2 = await mortgageManager.mortgages(1);
+        assert.equal(mortgage2[7], 3, "Status should be defaulted");
     });
 })
