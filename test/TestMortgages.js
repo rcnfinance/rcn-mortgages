@@ -830,7 +830,7 @@ contract('Mortgage manager and creator', function(accounts) {
         assert.equal(await land.ownerOf(landId), mortgageManager.address);
 
         // Wait loan time, less than 1 week
-        await web3.currentProvider.send({jsonrpc: "2.0", method: "evm_increaseTime", params: [5 * 86400 + 200], id: 0});
+        await web3.currentProvider.send({jsonrpc: "2.0", method: "evm_increaseTime", params: [6 * 86400 + 200], id: 0});
 
         // Claim as lender
         await mortgageManager.claim(rcnEngine.address, loanId, [], {from:accounts[3]})
@@ -838,7 +838,7 @@ contract('Mortgage manager and creator', function(accounts) {
         assert.equal(await land.ownerOf(landId), accounts[3]);
 
         let mortgage2 = await mortgageManager.mortgages(1);
-        assert.equal(mortgage2[7], 3, "Status should be defaulted");
+        assert.equal(mortgage2[7], 4, "Status should be defaulted");
     });
     it("Should be claimeable after default, with partial payment", async() => {
         await setBancor();
@@ -902,7 +902,7 @@ contract('Mortgage manager and creator', function(accounts) {
         assert.equal(await land.ownerOf(landId), mortgageManager.address);
 
         // Wait loan time, less than 1 week
-        await web3.currentProvider.send({jsonrpc: "2.0", method: "evm_increaseTime", params: [5 * 86400 + 200], id: 0});
+        await web3.currentProvider.send({jsonrpc: "2.0", method: "evm_increaseTime", params: [6 * 86400 + 200], id: 0});
 
         await assertThrow(mortgageManager.claim(rcnEngine.address, loanId, [], {from:accounts[2]})) // As borrower
         assert.equal(await land.ownerOf(landId), mortgageManager.address);
@@ -913,6 +913,6 @@ contract('Mortgage manager and creator', function(accounts) {
         assert.equal(await land.ownerOf(landId), accounts[3]);
 
         let mortgage2 = await mortgageManager.mortgages(1);
-        assert.equal(mortgage2[7], 3, "Status should be defaulted");
+        assert.equal(mortgage2[7], 4, "Status should be defaulted");
     });
 })
