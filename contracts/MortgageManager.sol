@@ -493,17 +493,19 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
     //////
     // Override transfer
     //////
-    function _moveToken(
-        address from,
-        address to,
-        uint256 assetId,
-        bytes userData,
-        bool doCheck
+    function _doTransferFrom(
+        address _from,
+        address _to,
+        uint256 _assetId,
+        bytes _userData,
+        bool _doCheck
     )
         internal
-        isCurrentOwner(from, assetId)
+        onlyAuthorized(_assetId)
+        addressDefined(_to)
+        isCurrentOwner(_from, _assetId)
     {
-        ERC721Base._moveToken(from, to, assetId, userData, doCheck);
-        land.setUpdateOperator(mortgages[assetId].landId, to);
+        ERC721Base._doTransferFrom(_from, _to, _assetId, _userData, _doCheck);
+        land.setUpdateOperator(mortgages[_assetId].landId, _to);
     }
 }

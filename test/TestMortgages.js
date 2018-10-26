@@ -505,8 +505,8 @@ contract('Mortgage manager and creator', function(accounts) {
         assert.equal(mortgage[7].toNumber(), 3, "Status should be Paid")
 
         // Also test the ERC-721
-        assert.equal(await mortgageManager.balanceOf(accounts[2]), 0)
-        assert.equal(await mortgageManager.totalSupply(), 0)
+        assert.equal(await mortgageManager.balanceOf(accounts[2]), 1);
+        assert.equal(await mortgageManager.totalSupply(), 1);
     })
 
     it("Should be payable from the mortgage helper", async() => {
@@ -631,8 +631,8 @@ contract('Mortgage manager and creator', function(accounts) {
         assert.equal(mortgage[7].toNumber(), 3, "Status should be Paid")
 
         // Also test the ERC-721
-        assert.equal((await mortgageManager.balanceOf(accounts[2])).toNumber(), 0)
-        assert.equal(await mortgageManager.totalSupply(), 0)
+        assert.equal(await mortgageManager.balanceOf(accounts[2]), 1);
+        assert.equal(await mortgageManager.totalSupply(), 1);
     })
     it("Borrower should be able to update land data", async function(){
         await setKyber();
@@ -679,4 +679,88 @@ contract('Mortgage manager and creator', function(accounts) {
         await land.updateLandData(50, 60, "Hi RCN", { from: accounts[3] });
         assert.equal(await land.tokenMetadata(landId), "Hi RCN");
     })
+    it("Only owner and approved should be able to transfer mortgage", async function(){
+        await setKyber();
+
+        // Buy land and put it to sell
+        await land.assignNewParcel(50, 60, accounts[1])
+        await land.setApprovalForAll(landMarket.address, true, {from:accounts[1]})
+        let landId = await land.encodeTokenId(50, 60)
+        await landMarket.createOrder(landId, 200 * 10**18, 10**30, {from:accounts[1]})
+
+        // Request a loan for the mortgage it should be index 0
+        let loanReceipt = await rcnEngine.createLoan(kyberOracle.address, accounts[2], manaCurrency, 190*10**18, 100000000, 100000000, 86400, 0, 10**30, "Test mortgage", {from:accounts[2]});
+        let loanId = loanReceipt["logs"][0]["args"]["_index"];
+
+        // Authorize mortgage manager
+        await rcn.approve(mortgageManager.address, 10**32, {from:accounts[2]})
+        
+        // Mint MANA and Request mortgage
+        await mana.createTokens(accounts[2], 40*10**18);
+        await mana.approve(mortgageManager.address, 40*10**18, {from:accounts[2]})
+        await mortgageManager.requestMortgageId(rcnEngine.address, landMarket.address, loanId, 40*10**18, landId, kyberProxy.address, {from:accounts[2]});
+
+        let mortgageId = 1;
+        let cosignerData = await mortgageManager.getData(mortgageId);
+ 
+        // Lend
+        await rcn.createTokens(accounts[3], 151*10**18);
+        await rcn.approve(rcnEngine.address, 151 * 10**18, {from:accounts[3]});
+        await rcnEngine.lend(loanId, [], mortgageManager.address, cosignerData, {from:accounts[3]});
+
+        // Owner should be able to transfer the parcel
+        await mortgageManager.transferFrom(accounts[2], accounts[3], mortgageId, { from: accounts[2] });
+        assert.equal(await mortgageManager.ownerOf(mortgageId), accounts[3]);
+
+        // Not owner shouldn't be able to transfer
+        await assertThrow(mortgageManager.transferFrom(accounts[3], accounts[8], mortgageId, { from: accounts[9]}));
+        await assertThrow(mortgageManager.transferFrom(accounts[3], accounts[8], mortgageId, { from: accounts[8]}));
+        // Should check from before transfer
+        await assertThrow(mortgageManager.transferFrom(accounts[2], accounts[8], mortgageId, { from: accounts[3]}));
+
+        assert.equal(await mortgageManager.ownerOf(mortgageId), accounts[3]);
+
+        // Approved for all should be able to transfer
+        await mortgageManager.setApprovalForAll(accounts[9], true, { from: accounts[3] });
+        // Multiple approve should make no effect
+        await mortgageManager.setApprovalForAll(accounts[9], true, { from: accounts[3] });
+
+        await mortgageManager.transferFrom(accounts[3], accounts[7], mortgageId, { from: accounts[9] });
+        assert.equal(await mortgageManager.ownerOf(mortgageId), accounts[7]);
+
+        await assertThrow(mortgageManager.transferFrom(accounts[7], accounts[8], mortgageId, { from: accounts[8]}));
+
+        await mortgageManager.transferFrom(accounts[7], accounts[3], mortgageId, { from: accounts[7] });
+
+        assert.equal(await mortgageManager.ownerOf(mortgageId), accounts[3]);
+        
+        // Remove approve
+        await mortgageManager.setApprovalForAll(accounts[9], false, { from: accounts[3] });
+
+        // Transfer pull should fail
+        await assertThrow(mortgageManager.transferFrom(accounts[3], accounts[9], mortgageId, { from: accounts[9] }));
+
+        // Approve transfer should be capable of pulling
+        await mortgageManager.approve(accounts[5], mortgageId, { from: accounts[3] });
+        await mortgageManager.transferFrom(accounts[3], accounts[6], mortgageId, { from: accounts[5] });
+        assert.equal(await mortgageManager.ownerOf(mortgageId), accounts[6]);
+
+        // Approve should be cleared
+        await assertThrow(mortgageManager.transferFrom(accounts[6], accounts[5], mortgageId, { from: accounts[5] }));
+        assert.equal(await mortgageManager.ownerOf(mortgageId), accounts[6]);
+
+        // Should be possible to remove approve
+        await mortgageManager.approve(accounts[1], mortgageId, { from: accounts[6] });
+        await mortgageManager.approve(0x0, mortgageId, { from: accounts[6] });
+
+        await assertThrow(mortgageManager.transferFrom(accounts[6], accounts[1], mortgageId, { from: accounts[1] }));
+        assert.equal(await mortgageManager.ownerOf(mortgageId), accounts[6]);
+
+        // Owner should be able to transfer after approve
+        await mortgageManager.approve(accounts[1], mortgageId, { from: accounts[6] });
+        console.log(await mortgageManager.transferFrom(accounts[6], accounts[2], mortgageId, { from: accounts[6] }));
+        await assertThrow(mortgageManager.transferFrom(accounts[6], accounts[1], mortgageId, { from: accounts[1] }));
+        assert.equal(await mortgageManager.ownerOf(mortgageId), accounts[2]);
+        assert.equal(true, false);
+    });
 })
