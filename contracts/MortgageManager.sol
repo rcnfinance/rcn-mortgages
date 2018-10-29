@@ -50,8 +50,24 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
     bytes32 public constant MANA_CURRENCY = 0x4d414e4100000000000000000000000000000000000000000000000000000000;
     uint256 public constant REQUIRED_ALLOWANCE = 1000000000 * 10**18;
 
-    event RequestedMortgage(uint256 _id, address _borrower, address _engine, uint256 _loanId, address _landMarket, uint256 _landId, uint256 _deposit, address _tokenConverter);
-    event ReadedOracle(address _oracle, bytes32 _currency, uint256 _decimals, uint256 _rate);
+    event RequestedMortgage(
+        uint256 _id,
+        address _borrower,
+        address _engine,
+        uint256 _loanId,
+        address _landMarket,
+        uint256 _landId,
+        uint256 _deposit,
+        address _tokenConverter
+    );
+
+    event ReadedOracle(
+        address _oracle,
+        bytes32 _currency,
+        uint256 _decimals,
+        uint256 _rate
+    );
+
     event StartedMortgage(uint256 _id);
     event CanceledMortgage(address _from, uint256 _id);
     event PaidMortgage(address _from, uint256 _id);
@@ -191,9 +207,10 @@ contract MortgageManager is Cosigner, ERC721Base, SafeWithdraw, BytesUtils {
 
         require(engines[engine], "Engine not authorized");
         require(engine.getStatus(loanId) == Engine.Status.initial, "Loan status is not inital");
-        require(msg.sender == borrower ||
-               (msg.sender == engine.getCreator(loanId) && creators[msg.sender]),
-            "Creator should be borrower or authorized");
+        require(
+            msg.sender == borrower || (msg.sender == engine.getCreator(loanId) && creators[msg.sender]),
+            "Creator should be borrower or authorized"
+        );
         require(engine.isApproved(loanId), "Loan is not approved");
         require(rcn.allowance(borrower, this) >= REQUIRED_ALLOWANCE, "Manager cannot handle borrower's funds");
         require(tokenConverter != address(0), "Token converter not defined");
